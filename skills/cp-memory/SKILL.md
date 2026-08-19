@@ -1,14 +1,18 @@
 ---
-name: session-memory
+name: cp-memory
 description: >-
-  Captures, curates, consolidates, and decays command-post session memory
+  Command-post session-memory curation skill (capture, inspect-then-update,
+  decay/archive). Captures, curates, consolidates, and decays session memory
   under data/learnings.md, data/candidates.md, and data/archive.md. Use when
   the user asks to curate, consolidate, or archive memory; at session end;
   when data/learnings.md is touched; every ~10 jobs; or when a worker result
   or failure yields a lesson.
 ---
 
-# Session memory
+# cp-memory
+
+Command-post session-memory curation (capture, inspect-then-update,
+decay/archive).
 
 Operationalize the Memory contract in `AGENTS.md`. File
 contracts (header + format) are created by `bin/install.sh` when the files are

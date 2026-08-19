@@ -52,7 +52,7 @@ worker.
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
 | `reports/` | yes | Design research for this repo |
-| `skills/` | yes | Canonical agent skills (`session-memory`) |
+| `skills/` | yes | Canonical agent skills (`cp-memory`) |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |

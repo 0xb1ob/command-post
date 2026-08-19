@@ -412,7 +412,7 @@ br count --by label --include-closed --json
 
 ## Memory
 
-Ops: follow **session-memory** at `skills/session-memory/SKILL.md`.
+Ops: follow **cp-memory** at `skills/cp-memory/SKILL.md`.
 Triggers: worker result or failure (capture); session end; whenever
 `data/learnings.md` is touched; every ~10 jobs; or when asked to
 curate, consolidate, or archive memory.
@@ -469,7 +469,7 @@ Tracked (the template):
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `reports/` — design research for this repo
-- `skills/` — canonical agent skills (session-memory); `bin/install.sh` copies into harness dirs
+- `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 
 Gitignored (this machine):
 
