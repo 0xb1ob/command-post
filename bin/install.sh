@@ -144,9 +144,11 @@ an existing file.
 Format: | Name | Clone URL | Path | Delivery | Notes |
 - Name: short slug; used as projects/<name> and as br label project:<name>
 - Clone URL: git remote to fetch/clone from
-- Path: always projects/<name> (relative to command-post root)
+- Path: always projects/<name> (relative to command-post root). This is the
+  only clone treehouse may lease from. Extra clones of the same repo are
+  not lease sources.
 - Delivery: pr | local | pipeline (default for jobs in this repo)
-- Notes: freeform
+- Notes: freeform; record retired extra clones so they are not leased
 
 Who writes: the orchestrator, when a project is first cloned or when
 delivery/notes change.
@@ -273,10 +275,59 @@ copy_skills_to_harness() {
   done
 }
 
+# treehouse get --lease keys off the git repo of cwd. A leftover clone at
+# $HOME/<name> (e.g. ~/command-post) can hand out a worktree that fails
+# muxa preflight ("belongs to another repo"). Warn; do not delete anything.
+abs_git_common() {
+  local d="$1" g parent
+  g="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  if [[ "$g" != /* ]]; then
+    g="$d/$g"
+  fi
+  parent="$(cd "$(dirname "$g")" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$g")"
+}
+
+warn_if_conflicting_clone() {
+  local label="$1" extra="$2" canonical="$3"
+  local extra_git canonical_git
+  extra_git="$(abs_git_common "$extra" 2>/dev/null)" || return 0
+  canonical_git="$(abs_git_common "$canonical" 2>/dev/null)" || return 0
+  if [[ "$extra_git" != "$canonical_git" ]]; then
+    warn "$label: $extra (git $extra_git) conflicts with canonical $canonical (git $canonical_git). Lease only from projects/<name>; retire or rename the extra clone. Do not git worktree add under projects/.worktrees/ when treehouse preflight fails."
+  fi
+}
+
+warn_stale_home_clones() {
+  local path name
+  if [[ -e "$HOME/command-post/.git" && "$ROOT" != "$HOME/command-post" ]]; then
+    warn_if_conflicting_clone "stale home clone" "$HOME/command-post" "$ROOT"
+    if [[ -d "$ROOT/projects/command-post" ]]; then
+      warn_if_conflicting_clone "stale home clone" "$HOME/command-post" "$ROOT/projects/command-post"
+    fi
+  fi
+  if [[ -d "$ROOT/projects" ]]; then
+    local home_abs root_abs
+    root_abs="$(cd "$ROOT" && pwd -P)"
+    for path in "$ROOT/projects"/*; do
+      [[ -d "$path" ]] || continue
+      name="$(basename "$path")"
+      if [[ -e "$HOME/$name/.git" ]]; then
+        home_abs="$(cd "$HOME/$name" && pwd -P)"
+        # Orchestrator home at ~/command-post plus projects/command-post is
+        # the intended layout when shipping this repo. Skip that pair.
+        [[ "$home_abs" == "$root_abs" ]] && continue
+        warn_if_conflicting_clone "stale home clone" "$HOME/$name" "$path"
+      fi
+    done
+  fi
+}
+
 main() {
   install_deps
   scaffold
-  log "done — session start: read data/learnings.md, skim data/projects.md, br ready"
+  warn_stale_home_clones
+  log "done — once after clone. Session start: read data/learnings.md, br ready"
 }
 
 main "$@"
