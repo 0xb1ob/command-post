@@ -30,17 +30,11 @@ never be committed.
 
 ## Session start
 
-First clone: `bin/install.sh` (runtime deps). Then once per session, from this repo root:
+First clone: run `bin/install.sh` once from this repo root (runtime deps +
+scaffold: `data/`, `projects/`, `br init --prefix cp`). Idempotent; safe to
+re-run. `bin/bootstrap.sh` is a backward-compat shim to the same script.
 
-```bash
-bin/bootstrap.sh
-```
-
-Bootstrap is idempotent: it scaffolds `data/` and `projects/` when missing,
-checks that `br` is installed, and runs `br init --prefix cp` when `.beads/`
-is absent.
-
-Then:
+Each session:
 
 1. Read `data/learnings.md` in full (it is budgeted, so this is cheap).
 2. Skim `data/projects.md` for registered repos.
@@ -348,7 +342,7 @@ knowledge.
 
 Job lifecycle history lives in br (closed issues + comments), not in learnings.
 
-File contracts (header + format) are created by `bin/bootstrap.sh` when the
+File contracts (header + format) are created by `bin/install.sh` when the
 files are absent. Do not invent a second schema.
 
 ### Capture (two-stage)
@@ -386,7 +380,8 @@ Tracked (the template):
 
 - `AGENTS.md` / `CLAUDE.md` — this contract
 - `README.md` — clone-and-go usage
-- `bin/bootstrap.sh` — session-start scaffold (embeds `data/` file contracts)
+- `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
+- `bin/bootstrap.sh` — backward-compat shim to `bin/install.sh`
 - `reports/` — design research for this repo
 
 Gitignored (this machine):
