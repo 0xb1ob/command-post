@@ -107,7 +107,7 @@ cross-repo use:
 - Routing/town features solve "issues live in many repos, operate on them from
   one place" — the opposite of our shape, which is "one dispatch home tracks
   jobs *about* many repos."
-- Convention: every issue gets `project:<name>` (matching `projects.md`
+- Convention: every issue gets `project:<name>` (matching `data/projects.md`
   entries), plus optional `delivery:pr|local|pipeline`. Issue = job; the PR URL
   goes in the close reason or a comment.
 
@@ -124,27 +124,26 @@ cross-repo use:
 | Worker blocked | `br comments add <id> "blocker: …"` (issue stays in_progress) |
 | Completion | `br close <id> --reason "PR: <url>"` |
 | Dropped | `br delete <id>` (tombstone) or `close --reason "dropped: …"` |
-| Session end | `br sync --flush-only && git add .beads/ && git commit` |
-| Restart / new lease | auto-import runs on first command; `br sync --import-only` to force |
+| Session end | no git handoff — `.beads/` stays machine-local (see `AGENTS.md`) |
+| Restart / new lease | same checkout: `.beads/` persists on disk; new clone: `bin/bootstrap.sh` runs `br init` |
 
 ### Restart survival
 
-State survives restarts **through git**: the SQLite db is per-worktree and
-gitignored, but `issues.jsonl` is committed. A fresh command-post lease gets
-the committed JSONL and br rebuilds/refreshes the db on first use. This is
-strictly better than the current situation, where backlog state lives in an
-uncommitted-until-someone-remembers `backlog.md`. One discipline requirement:
-the orchestrator must commit + push `.beads/` at the end of a session, or
-state is stranded in the old worktree (same failure mode `backlog.md` already
-has). Concurrent leases that both mutate can be reconciled with
-`br sync --merge` (`--force-db` / `--force-jsonl` / `--force` newest-wins).
+In command-post, `.beads/` is **local-only and gitignored** — not committed.
+State survives restarts on the **same machine** as long as the checkout and
+`.beads/` directory remain. A fresh clone gets an empty tracker from
+`bin/bootstrap.sh` (`br init --prefix cp`). This is still better than the old
+`backlog.md` pattern (uncommitted markdown that was easy to forget): br gives
+structured queries and closed-issue history on the machine where work ran.
+Upstream br's git-durable JSONL model is documented above for reference;
+command-post deliberately does not commit `.beads/`.
 
 ### Comparison with what exists today
 
 | | `backlog.md` | `muxa jobs` | `br` |
 |---|---|---|---|
 | Storage | markdown in repo | TSV per project in `~/.local/state/muxa/jobs/` | SQLite + JSONL in repo |
-| Survives restart | if committed | yes (machine-local) | yes (via git, any machine) |
+| Survives restart | if committed | yes (machine-local) | yes (machine-local in command-post; upstream br can commit JSONL) |
 | Schema | none | fixed: kind, delivery, worker, worktree, branch, status, pr, note | rich: priority, deps, labels, comments, events, defer/due |
 | Query | grep | `muxa jobs list` (flat table) | `list/ready/blocked/search/count --json`, dependency-aware |
 | Cross-project view | one file | one TSV **per project** — no aggregate view | one db, filter by `project:` label |
@@ -156,13 +155,13 @@ table with no aggregation across them. `backlog.md` in command-post is an
 empty template — effectively unused. br fixes both gaps: durable cross-repo
 backlog with a single query surface.
 
-**Division of labor with `muxa jobs`:** keep `muxa jobs` as the *runtime
-dispatch ledger* (worktree paths, worker aliases, per-spawn mechanics — it's
-wired into the orchestrator skill and costs nothing), and make br the *durable
-backlog / source of truth* for what work exists, its priority, and its
-outcome. Use the br issue ID as the muxa job name (or put it in `note=`) to
-link the two. Once br is proven, `muxa jobs` could be dropped, but that's not
-required to adopt.
+**Division of labor with `muxa jobs`:** keep `muxa jobs` as the *runtime-only
+dispatch ledger* (worker alias, worktree path at spawn; cleared at teardown —
+no `pr=`, no `note=<br-id>` cross-link). br is the *durable backlog / source
+of truth* for what work exists, its priority, status, and outcome (PR URL on
+close). Authoritative kind, delivery, and job history live on the br issue;
+`muxa jobs` exists only because the CLI requires `kind=` / `delivery=` at
+spawn.
 
 ---
 
@@ -176,44 +175,40 @@ not first-class.
 
 Caveats: single-maintainer project with a no-contributions policy (mitigated:
 frozen architecture, plain-text JSONL escape hatch — worst case we still own a
-readable `issues.jsonl`); requires end-of-session commit discipline; adds one
-more state surface alongside `muxa jobs` until/unless the latter is retired.
+readable `issues.jsonl`); `.beads/` is machine-local (not portable across
+clones without export); runtime `muxa jobs` rows are cleared at teardown.
 
 ### Exact setup steps for command-post (one-time)
 
+Adopted in this repo — see [`AGENTS.md`](../AGENTS.md) and
+[`bin/bootstrap.sh`](../bin/bootstrap.sh):
+
 ```bash
-# in the command-post checkout
-export RUST_LOG=error
-br init                          # creates .beads/, fixes .gitignore (db ignored, jsonl tracked)
-br config set id.prefix=cp       # IDs like cp-<slug>-<hash>
-br config set defaults.type=task
+# first session in a fresh checkout
+bin/bootstrap.sh                 # creates data/, projects/, runs br init --prefix cp if .beads/ absent
+export RUST_LOG=error            # optional; keeps br output parseable
 ```
 
-Then, by hand:
+Then follow the contract in `AGENTS.md`:
 
-1. Add the label convention and command crib to `AGENTS.md` / `learnings.md`:
-   every issue gets `project:<name>` from `projects.md`; optional
-   `delivery:pr|local|pipeline`; PR URL goes in the close reason.
-   (Skip `br agents --add` — its boilerplate assumes a code repo, not a
-   dispatch home.)
-2. Replace `backlog.md` body with a pointer: "Backlog lives in `.beads/` —
-   query with `br list --json`." Keep the file so existing references don't
-   dangle.
-3. Commit: `git add .beads/ backlog.md AGENTS.md && git commit -m "Adopt br for backlog"`.
+1. Register projects in `data/projects.md`; every br issue gets
+   `project:<name>` from that registry plus `delivery:pr|local|pipeline`.
+2. Track jobs with `br` (`br ready`, `br create`, `br close`, … — all with
+   `--json` when parsing output). Do not commit or push `.beads/`.
+3. At spawn, record worker + worktree in `muxa jobs` only (runtime ledger;
+   no `note=<br-id>`). Put the PR URL on `br close`, not on `muxa jobs done`.
 
 ### Orchestrator loop after adoption
 
 ```bash
 # intake
-br create "Fix cluster reads" -p 1 -l project:ssv-ops-dashboard,delivery:pr --slug cluster-reads --json
+br create "Fix cluster reads" -t task -p 1 -l project:ssv-ops-dashboard,delivery:pr,kind:ship --slug cluster-reads --json
 # dispatch (id from create output)
-br update cp-cluster-reads-ab12 --status in_progress --assignee lively-comet
-muxa jobs add cluster-reads kind=ship delivery=pr note=cp-cluster-reads-ab12
+br update cp-cluster-reads-ab12 --status in_progress --assignee lively-comet --json
+muxa jobs add cluster-reads kind=ship delivery=pr worker=lively-comet worktree=<path>
 # completion
-br close cp-cluster-reads-ab12 --reason "PR: https://github.com/…/pull/22"
-muxa jobs done cluster-reads pr=https://github.com/…/pull/22
-# end of session — always
-br sync --flush-only && git add .beads/ && git commit -m "backlog sync" && git push
-# new lease / restart
-br sync --import-only   # or rely on auto-import on first command
+br close cp-cluster-reads-ab12 --reason "PR: https://github.com/…/pull/22" --json
+muxa jobs done cluster-reads
+# teardown (parent, from outside the worktree)
+treehouse return --force <worktree>
 ```

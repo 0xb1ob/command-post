@@ -40,7 +40,7 @@ worker.
 | `README.md` | yes | This file |
 | `bin/bootstrap.sh` | yes | Session-start scaffold; embeds `data/` file contracts |
 | `reports/` | yes | Design research for this repo |
-| `data/` | **no** | `projects.md`, `learnings.md`, `candidates.md`, `archive.md` |
+| `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
 
