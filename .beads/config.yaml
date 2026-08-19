@@ -1,0 +1,8 @@
+# Label conventions (see AGENTS.md):
+#   project:<name>              — Name column in projects.md
+#   delivery:pr|local|pipeline  — job delivery mode
+id:
+  prefix: cp
+defaults:
+  type: task
+issue_prefix: cp
