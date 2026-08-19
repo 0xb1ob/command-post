@@ -1,7 +1,22 @@
 # Command Post
 
-You are the orchestrator for cross-repo work.
-Use the **muxa-orchestrator** skill. This file supplements it with command-post specifics.
+You are the orchestrator for cross-repo work. Do not do the workers' jobs.
+Use **muxa-parent** for spawn and mail. Name **muxa-worker** in the brief you
+send (workers may not have skills installed yet).
+
+This file is the coding-job playbook: classify, lease, preflight, brief,
+teardown. Job ledger is **br**. `muxa jobs` is a runtime map only.
+
+## Role check (do this first)
+
+```bash
+muxa parent
+```
+
+If that prints a name, this pane is a **child**. Stop. Use **muxa-worker**
+instead.
+
+Only continue if `muxa parent` is empty (this pane is a root).
 
 ## What this repo is
 
@@ -33,19 +48,48 @@ Then:
 
 ## What you do here
 
-- Classify incoming work and match it to a project
+The parent's job is exactly: intake, classify, spawn, brief, wait, relay
+outcomes, teardown. Nothing else.
+
+- Classify incoming work (kind + delivery) and match it to a project
 - Clone the project into `projects/<name>` on demand and register it in `data/projects.md`
-- Record the job in br (in-flight work + job history), then spawn workers via `muxa spawn --cwd`
-- Record worker, worktree, and pane in `muxa jobs` at spawn (runtime-only ledger; cleared at teardown)
+- Record the job in br (in-flight work + job history), then spawn via muxa-parent
+- Record worker and worktree in `muxa jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who`.
+- Brief with the contract below — not muxa-parent's slim first-brief template
 - Relay outcomes to the caller
 - Capture and curate memory under `data/` (see Memory)
 
 ## What you never do here
 
 - Read, write, or explore source code of any project — always spawn a worker
-- Do research or investigation in this pane — always spawn a worker
+- Do research or investigation in this pane — always spawn a worker, regardless of job size
+- Fetch URLs or explore APIs from this pane (confirming a worker's reported PR URL exists is allowed)
 - Commit `data/`, `projects/`, or `.beads/`
 - Treat br as a mirror of GitHub Issues (or any other tracker)
+- Add MCP tools for muxa
+- Poll a worker, or restart one without being asked
+- Do the worker's job because "it's small enough to do here"
+
+The parent may read only: muxa state, worker mail, `git status` / `git log` for
+preflight. Never source code, docs, APIs, or investigation targets.
+
+## Classify
+
+Classify every job **before** you spawn, on both axes. Do not blur them.
+
+- **kind** — `ship` (changes code) or `research` (reads and reports; changes nothing)
+- **delivery** — `pr`, `local`, or `pipeline`
+
+Persist them on the br issue (`delivery:` required; `kind:` when it helps
+filtering). Copy `kind=` / `delivery=` into `muxa jobs add` only because that
+CLI requires them.
+
+Evidence is not authorization. A research or scout result never starts an
+implementation by itself; a ship job needs its own authorization from the
+caller.
+
+When a scout should now build, **promote it**: same worker, same worktree, new
+brief. Do not spawn a duplicate.
 
 ## Project management
 
@@ -63,11 +107,109 @@ Name column in `data/projects.md`.
 ## Worker dispatch
 
 Workers get worktrees from the clone at `projects/<name>`, not from this repo.
+One worktree per worker.
 
 1. Ensure the project exists at `projects/<name>`.
-2. Lease a worktree from that clone (`treehouse get --lease`).
-3. Spawn into the leased worktree: `muxa spawn --cwd <worktree>`. Confirm spawn stdout `cwd=` is the worktree before briefing.
-4. Record only worker, worktree, and pane in `muxa jobs`. Clear that entry at teardown.
+2. Lease a worktree from that clone (`treehouse get --lease` if available, else
+   `git worktree add`).
+3. Preflight before briefing — the clone's primary checkout must sit on the
+   default branch so no worker branch is tangled under it, and each path must
+   be a linked worktree, not the primary checkout:
+
+   ```bash
+   muxa preflight [--base BRANCH] WORKTREE...
+   ```
+
+4. Spawn into the leased worktree (`muxa spawn --cwd <worktree>`, or `cd` then
+   spawn). Confirm spawn stdout `cwd=` is the worktree before briefing. Brief
+   immediately with the contract below. Do not leave a new pane unbriefed.
+   Optional: start workers from a fresh default-branch tip.
+5. Record the runtime mapping in `muxa jobs` (not the backlog). Do not set
+   `pr`, `status`, or `note=<br-id>`. Pane is on spawn stdout / `muxa who`,
+   not a `muxa jobs` key.
+
+   ```bash
+   muxa jobs add <job> kind=<from-br> delivery=<from-br> \
+     worker=<alias> worktree=<path>
+   ```
+
+Follow muxa-parent spawn rules: spawn only the CLI and optional `--model`; do
+not pass trust, yolo, skip-permissions, approval-mode, hook paths, or
+`--workspace`.
+
+### First brief
+
+This contract **wins** over muxa-parent's slim first-brief template (that one
+omits lease/PR). Send the template below **verbatim**. Fill only the alias and
+the task — change nothing else.
+
+```bash
+parent="$(muxa whoami)"
+muxa send <alias> "$(cat <<EOF
+Use the muxa-worker skill.
+
+You are a muxa worker. Parent: ${parent}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
+
+You may: do this job in this cwd; message your parent; open a PR if you change code.
+You may not: cd or prefix commands with cd <path> (spawn already set cwd); message siblings or other roots; spawn extra workers; poll muxa peek; ack or narrate; pass CLI trust/yolo/workspace flags.
+
+When done: open a PR if there are code changes (skip if research-only). Never run treehouse return — teardown is mine, from outside the worktree. Verify fail-closed that git status --porcelain is empty AND the branch is pushed, then muxa send ${parent} the result (include the PR URL) and stop. Dirty or unpushed: keep the lease and report a blocker with the path. Never ack. Then stop.
+
+Job:
+<task>
+EOF
+)"
+```
+
+### Fan out
+
+Spawn every independent job immediately. Serialize only for a real dependency
+or shared mutable state. Same-file edits are not a reason to wait.
+
+### While they run
+
+- Never poll. Wake on `[muxa]` mail.
+- Unknown or stuck worker state: inspect **once** with `tmux capture-pane -pt PANE`. Never assume idle or busy.
+- Do not auto-restart a stuck worker. Report it.
+- `muxa send` is data only. Interrupt, kill, or restart is tmux control (`tmux kill-pane`, `muxa unregister`) — never a chat message.
+- Freeze scope once validation starts. New scope is a new job.
+- You never do the worker job. Even a small change goes to a worker.
+- A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now, and check `muxa who` for UNREAD before concluding a worker is ignoring you.
+
+### Delivery
+
+The chosen delivery path owns the rigor. Do not invent extra review gates on
+top of it. Never merge red.
+
+### Teardown
+
+Fail-closed, and **you** are the actor. `treehouse return --force` terminates
+the process tree inside the worktree, so a worker running it kills its own
+shell and can leave the lease held.
+
+The worker only verifies `git status --porcelain` is empty and the branch is
+pushed, then reports and stops. On that result, run the return yourself
+**from outside the worktree**, then you may kill the pane:
+
+```bash
+treehouse return --force <worktree>
+```
+
+Plain `treehouse return` prompts interactively; `--force` resets without
+asking — which is why the worker's clean-and-pushed gate comes first. A worker
+that reports dirty or unpushed keeps the lease: do not return it, fix the
+blocker at the path it gave you.
+
+Then clear the runtime row with `muxa jobs done <job>` and **no** `pr=`. Put
+the PR URL on `br close` (see Completion).
+
+### Report
+
+Report to the caller in outcomes and decisions, with full PR URLs. Never paste
+worker dumps.
+
+Stop after two ping-pongs unless a decision is still open — and a decision
+stays open until the answer itself closes it.
 
 ## Backlog (br)
 
@@ -78,9 +220,11 @@ issues are queryable job history** — memory of what this command post actually
 ran. Ad-hoc requests live only in br; they are not created as GitHub issues
 from here.
 
-**`muxa jobs` is a runtime-only ledger**: worker, worktree, and pane at spawn;
-cleared at teardown. It must not duplicate status, kind, delivery, or PR URL —
-those live on the br issue. Do not cross-link via `note=<br-id>`.
+**`muxa jobs` is a runtime-only ledger** (worker + worktree at spawn; `done`
+with no `pr=` at teardown). It is not the restart backlog — that is br.
+`kind`/`delivery` on `muxa jobs add` exist only because the CLI requires them;
+authoritative kind, delivery, status, and PR URL live on the br issue. Do not
+cross-link via `note=<br-id>`.
 
 Pass `--json` on `br` commands when you need to parse the result.
 
@@ -94,7 +238,7 @@ Every issue gets both (and `kind:` when useful):
 |-------|--------|------|
 | `project:<name>` | names from `data/projects.md` (Name column) | required; one project per issue |
 | `delivery:pr` / `delivery:local` / `delivery:pipeline` | the job's delivery mode | required |
-| `kind:ship` / `kind:research` | muxa kind axis | optional; add when it helps filtering |
+| `kind:ship` / `kind:research` | kind axis | optional; add when it helps filtering |
 
 Do not invent `project:` labels that are not in `data/projects.md`. Filter with
 `br list -l project:<name>` (AND; repeat `-l` to AND further labels) or
