@@ -329,6 +329,11 @@ br count --by label --include-closed --json
 
 ## Memory
 
+Ops: follow **session-memory** at `.cursor/skills/session-memory/SKILL.md`.
+Triggers: worker result or failure (capture); session end; whenever
+`data/learnings.md` is touched; every ~10 jobs; or when asked to
+curate, consolidate, or archive memory.
+
 Local file-based long-term memory under `data/`. No cloud services, no daemons.
 
 - `data/learnings.md` — curated core, always loaded, budgeted (~60 lines / ~1,500 tokens). Inspect-then-update only.
@@ -381,6 +386,7 @@ Tracked (the template):
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `reports/` — design research for this repo
+- `.cursor/skills/` — project skills (session-memory)
 
 Gitignored (this machine):
 
