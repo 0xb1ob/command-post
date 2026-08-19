@@ -115,7 +115,7 @@ inspect-then-update.
 EOF
 
 if ! command -v br >/dev/null 2>&1; then
-  echo 'br is not installed. Install: curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash' >&2
+  echo 'br is not installed. Run: bin/install.sh' >&2
   exit 1
 fi
 echo "[bootstrap] br: $(br --version)"

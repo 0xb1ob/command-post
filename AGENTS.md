@@ -30,7 +30,7 @@ never be committed.
 
 ## Session start
 
-Run once per session, from this repo root:
+First clone: `bin/install.sh` (runtime deps). Then once per session, from this repo root:
 
 ```bash
 bin/bootstrap.sh
