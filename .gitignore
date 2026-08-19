@@ -1,4 +1,9 @@
-# Runtime state (not tracked)
+# Personal / machine-local state (not tracked)
+data/
+projects/
+.beads/
+
+# Runtime / secrets
 state/
 .env
 captain.md
