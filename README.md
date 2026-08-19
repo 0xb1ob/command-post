@@ -49,7 +49,7 @@ worker.
 |------|----------|------|
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
-| `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold) |
+| `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold; warns on stale home clones) |
 | `reports/` | yes | Design research for this repo |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `projects/` | **no** | Cloned repos, one directory per name |
@@ -67,7 +67,10 @@ Do not commit `data/`, `projects/`, or `.beads/`.
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.
 
 Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Spawn and mail
-use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`.
+use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`. Idle
+worker on a held worktree → `muxa send` (promote). `muxa spawn --cwd` warns
+if that cwd is already occupied; do not spawn a duplicate. Lease only from
+`projects/<name>`; see [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
 
 ## Contract
 

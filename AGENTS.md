@@ -82,7 +82,80 @@ implementation by itself; a ship job needs its own authorization from the
 caller.
 
 When a scout should now build, **promote it**: same worker, same worktree, new
-brief. Do not spawn a duplicate.
+brief. Do not spawn a duplicate. See [Pre-dispatch](#pre-dispatch).
+
+## Pre-dispatch
+
+Run this checklist **before every `muxa spawn`**. Fail closed. A small job is
+not an exception. Promotion and lease recovery live here. Occupied-cwd
+detection is muxa's: `muxa spawn --cwd` warns if a registered worker already
+sits on that path.
+
+### Checklist
+
+1. **Idle worker already on the target worktree?** Read `muxa who` (CWD
+   column). If a live worker is sitting on that path, **promote** it with
+   `muxa send` — do not spawn a duplicate. `muxa spawn --cwd` warns when
+   that path is occupied; treat the warning as promote-not-spawn. Do not
+   reimplement occupancy checks here.
+2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
+   in `data/projects.md`). One clone path per project. Extra checkouts
+   (`~/command-post`, …) are not lease sources.
+3. **Treehouse lease from that clone.** Run `treehouse get --lease` with cwd
+   = `projects/<name>`. Confirm the printed path is a linked worktree of that
+   clone (`git -C <worktree> rev-parse --git-common-dir` resolves under
+   `projects/<name>/.git`).
+4. **Preflight.** From the canonical clone:
+   `muxa preflight [--base BRANCH] <worktree>`. If it reports the worktree
+   **belongs to another repo**, recover (below). Do not `git worktree add`.
+5. **`muxa jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn.
+   Do not set `pr`, `status`, or `note=<br-id>`. Kind, delivery, status, and
+   PR URL live on the br issue.
+6. **Spawn aliases stay unique.** Parallel `muxa spawn` can race and assign
+   the same adjective-noun. Spawn sequentially, or pass `--name`. Confirm
+   spawn stdout `cwd=` is the worktree before briefing.
+
+### Promote vs new lease
+
+```
+same repo AND same worktree still held (lease not returned)
+  → muxa send <existing-alias> with a new brief (promote)
+  → do not muxa spawn, do not treehouse get --lease
+
+worktree was returned, OR the job is independent
+  (different repo, or a second worktree on the same repo)
+  → treehouse get --lease from projects/<name>
+  → muxa spawn --cwd <new-worktree> (sequentially, or --name)
+```
+
+A scout that should now build is a promote: same worker, same worktree, new
+brief. Research evidence is not authorization to spawn a second pane.
+
+### Stale clone / "belongs to another repo"
+
+`treehouse get --lease` keys off the git repo of the cwd you run it from. A
+leftover clone (e.g. `~/command-post`) yields a worktree linked to that
+`.git`, not `projects/<name>/.git`. `muxa preflight` then fails: the path
+**belongs to another repo**.
+
+**Do not** recover by `git worktree add` under `projects/.worktrees/` (or
+anywhere). That bypasses the treehouse pool; teardown becomes
+`git worktree remove` instead of `treehouse return`, and the pool stays
+wrong.
+
+**Recover:**
+
+1. `treehouse return --force <bad-worktree>`
+2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire or
+   rename extra clones so they are not used as cwd for `treehouse get`
+3. Re-lease from the canonical clone: `treehouse get --lease` with cwd
+   `projects/<name>`
+4. Re-run `muxa preflight` on the new path
+
+`git worktree add` is allowed only when **treehouse is not installed**. A
+treehouse failure is not "treehouse unavailable."
+
+See [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
 
 ## Project management
 
@@ -95,7 +168,9 @@ When work maps to a repo that is not yet local:
 2. Add or update the row in `data/projects.md`: Name, Clone URL, Path (`projects/<name>`), Delivery (`pr` | `local` | `pipeline`), Notes.
 
 Do not clone into the command-post root. `project:<name>` labels must match the
-Name column in `data/projects.md`.
+Name column in `data/projects.md`. One canonical clone per name: Path is always
+`projects/<name>`. Retire extra clones of the same repo (home-directory
+checkouts, old paths) so `treehouse get --lease` cannot pick them up.
 
 ## Worker dispatch
 
@@ -103,11 +178,15 @@ Workers get worktrees from the clone at `projects/<name>`, not from this repo.
 One worktree per worker.
 
 1. Ensure the project exists at `projects/<name>`.
-2. Lease a worktree from that clone (`treehouse get --lease` if available, else
-   `git worktree add`).
+2. Lease a worktree from that clone (`treehouse get --lease` with cwd
+   `projects/<name>`). If treehouse is not installed, `git worktree add` is
+   allowed. If treehouse is installed and lease or preflight fails, recover
+   under [Pre-dispatch](#pre-dispatch) — do not fall back to `git worktree add`
+   under `projects/.worktrees/`.
 3. Preflight before briefing — the clone's primary checkout must sit on the
    default branch so no worker branch is tangled under it, and each path must
-   be a linked worktree, not the primary checkout:
+   be a linked worktree of **this** clone, not the primary checkout and not
+   another repo's worktree:
 
    ```bash
    muxa preflight [--base BRANCH] WORKTREE...
@@ -158,6 +237,10 @@ EOF
 
 Spawn every independent job immediately. Serialize only for a real dependency
 or shared mutable state. Same-file edits are not a reason to wait.
+
+Spawn **commands** sequentially (or pass `--name`) so aliases cannot collide.
+Independence is about jobs running at the same time, not concurrent
+`muxa spawn` processes.
 
 ### While they run
 
