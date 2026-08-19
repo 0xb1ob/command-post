@@ -24,27 +24,20 @@ A clone-and-go orchestration home. Check it out on any machine, start an agent
 CLI session in this directory, and dispatch work into other repos from here.
 
 This repo is a **template plus local state**, not a source tree. Tracked files
-are the operating contract, bootstrap, and design reports. Registry, memory,
+are the operating contract, install scaffold, and design reports. Registry, memory,
 project clones, and br issue state are machine-local (gitignored) and must
 never be committed.
 
 ## Session start
 
-Run once per session, from this repo root:
+First clone: run `bin/install.sh` once from this repo root (runtime deps +
+scaffold: `data/`, `projects/`, `br init --prefix cp`). Idempotent; safe to
+re-run.
 
-```bash
-bin/bootstrap.sh
-```
-
-Bootstrap is idempotent: it scaffolds `data/` and `projects/` when missing,
-checks that `br` is installed, and runs `br init --prefix cp` when `.beads/`
-is absent.
-
-Then:
+Each session:
 
 1. Read `data/learnings.md` in full (it is budgeted, so this is cheap).
-2. Skim `data/projects.md` for registered repos.
-3. Query in-flight work with `br ready --json`.
+2. Query in-flight work with `br ready --json`.
 
 ## What you do here
 
@@ -348,7 +341,7 @@ knowledge.
 
 Job lifecycle history lives in br (closed issues + comments), not in learnings.
 
-File contracts (header + format) are created by `bin/bootstrap.sh` when the
+File contracts (header + format) are created by `bin/install.sh` when the
 files are absent. Do not invent a second schema.
 
 ### Capture (two-stage)
@@ -386,7 +379,7 @@ Tracked (the template):
 
 - `AGENTS.md` / `CLAUDE.md` — this contract
 - `README.md` — clone-and-go usage
-- `bin/bootstrap.sh` — session-start scaffold (embeds `data/` file contracts)
+- `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `reports/` — design research for this repo
 
 Gitignored (this machine):

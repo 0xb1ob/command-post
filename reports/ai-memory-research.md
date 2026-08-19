@@ -265,7 +265,7 @@ Strategies in maturity order:
 ## 4. Recommendation for command-post
 
 > **Implemented contract:** This section is a research proposal. What shipped in
-> this repo is in [`AGENTS.md`](../AGENTS.md) and [`bin/bootstrap.sh`](../bin/bootstrap.sh):
+> this repo is in [`AGENTS.md`](../AGENTS.md) and [`bin/install.sh`](../bin/install.sh):
 > memory under `data/` (`learnings.md`, `candidates.md`, `archive.md`), project
 > registry in `data/projects.md`, and job history in local-only `br` (`.beads/`,
 > not committed). The layout below was not adopted as written.

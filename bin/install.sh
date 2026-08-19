@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# Idempotent command-post setup. No arguments.
+# Phase 1 (deps): muxa, br (beads), treehouse — skip if already on PATH.
+# Phase 2 (scaffold): data/, projects/, data/*.md templates, br init --prefix cp.
+# Run once after clone; safe to re-run (muxa refreshes skills/hooks).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
+
+MUXA_INSTALL_URL="${MUXA_INSTALL_URL:-https://raw.githubusercontent.com/0xb1ob/muxa/main/install.sh}"
+BR_INSTALL_URL="${BR_INSTALL_URL:-https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh}"
+TREEHOUSE_INSTALL_URL="${TREEHOUSE_INSTALL_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
+
+log() { printf '[install] %s\n' "$*"; }
+warn() { printf '[install] warning: %s\n' "$*" >&2; }
+die() { printf '[install] error: %s\n' "$*" >&2; exit 1; }
+
+on_path() {
+  case ":${PATH}:" in
+    *:"$1":*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_bin_dir() {
+  mkdir -p "$BIN"
+  if ! on_path "$BIN"; then
+    warn "$BIN is not on PATH — add: export PATH=\"\$HOME/.local/bin:\$PATH\""
+  fi
+}
+
+require_prereqs() {
+  local missing=0
+  for cmd in git curl tmux; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      warn "$cmd is required but not found"
+      missing=1
+    fi
+  done
+  if [[ "$missing" -ne 0 ]]; then
+    die "install git, curl, and tmux first (muxa needs tmux; all three are used below)"
+  fi
+}
+
+install_muxa() {
+  if command -v muxa >/dev/null 2>&1; then
+    log "muxa: $(muxa version 2>/dev/null || echo installed) — refreshing install"
+  else
+    log "muxa: installing from $MUXA_INSTALL_URL"
+  fi
+
+  if curl -fsSL "$MUXA_INSTALL_URL" 2>/dev/null | MUXA_BIN_DIR="$BIN" bash; then
+    return 0
+  fi
+
+  # muxa repo is private; fall back to gh-authenticated clone when curl 404s.
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    local home="${MUXA_HOME:-$HOME/.muxa}"
+    log "muxa: curl install failed; trying gh repo clone -> $home"
+    if [[ -d "$home/.git" ]]; then
+      git -C "$home" fetch --depth 1 origin main
+      git -C "$home" merge --ff-only origin/main
+    else
+      gh repo clone 0xb1ob/muxa "$home" -- --depth 1
+    fi
+    MUXA_BIN_DIR="$BIN" bash "$home/install.sh"
+    return 0
+  fi
+
+  die "muxa install failed. Need access to github.com/0xb1ob/muxa (private repo) or set MUXA_INSTALL_URL."
+}
+
+install_br() {
+  if command -v br >/dev/null 2>&1; then
+    log "br: already installed ($(br --version))"
+    return 0
+  fi
+
+  log "br: installing from beads_rust"
+  curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet
+}
+
+install_treehouse() {
+  if command -v treehouse >/dev/null 2>&1; then
+    log "treehouse: already installed ($(treehouse --version 2>/dev/null || treehouse -v 2>/dev/null || echo ok))"
+    return 0
+  fi
+
+  log "treehouse: installing from $TREEHOUSE_INSTALL_URL"
+  # treehouse install.sh picks ~/.local/bin when it is on PATH; prepend ours.
+  PATH="$BIN:$PATH" sh -c "curl -fsSL '$TREEHOUSE_INSTALL_URL' | sh"
+}
+
+verify_tool() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    die "$cmd not found after install (expected on PATH; check $BIN)"
+  fi
+  log "verified: $cmd -> $(command -v "$cmd")"
+}
+
+install_deps() {
+  log "phase 1: deps (cwd $ROOT)"
+  require_prereqs
+  ensure_bin_dir
+  install_muxa
+  install_br
+  install_treehouse
+
+  # Re-scan PATH so verify sees freshly linked binaries.
+  export PATH="$BIN:$PATH"
+  verify_tool muxa
+  verify_tool br
+  verify_tool treehouse
+}
+
+write_if_absent() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    log "exists: $path"
+    return 0
+  fi
+  cat > "$path"
+  log "created: $path"
+}
+
+scaffold() {
+  log "phase 2: scaffold"
+  cd "$ROOT"
+
+  mkdir -p data projects
+  log "dirs: data/ projects/"
+
+  write_if_absent data/projects.md <<'EOF'
+# Projects
+
+<!--
+Contract: machine-local registry of repos this command post dispatches into.
+Never committed. bin/install.sh creates this file when absent; do not overwrite
+an existing file.
+
+Format: | Name | Clone URL | Path | Delivery | Notes |
+- Name: short slug; used as projects/<name> and as br label project:<name>
+- Clone URL: git remote to fetch/clone from
+- Path: always projects/<name> (relative to command-post root)
+- Delivery: pr | local | pipeline (default for jobs in this repo)
+- Notes: freeform
+
+Who writes: the orchestrator, when a project is first cloned or when
+delivery/notes change.
+-->
+
+| Name | Clone URL | Path | Delivery | Notes |
+|------|-----------|------|----------|-------|
+EOF
+
+  write_if_absent data/learnings.md <<'EOF'
+# Learnings
+
+<!--
+Contract: curated core. Always loaded at session start.
+Budget: max ~60 lines / ~1,500 tokens. Over budget → consolidate or demote
+until under before the file is saved.
+
+Writes: inspect-then-update only. Read the whole file, classify the finding
+as new / duplicate / superseding / obsoleting, then rewrite the affected
+entry. Never blind-append. Duplicates fold in; superseded entries are
+rewritten in place. Every write leaves the file more accurate, not merely
+longer.
+
+Entries: one line each, dated, evidence-backed. Shape:
+  - YYYY-MM-DD what happened; what to do; evidence: <source>. <!--tier-->
+Tiers (trailing HTML comments):
+  <!--P-->            pinned — never decays
+  <!--a:YYYY-MM-DD--> aging — stale at ≥30 days since last reinforcement
+  <!--p:YYYY-MM-DD--> perishable — stale at ≥7 days; must name a checkable
+                      expiry condition (ticket, version, dated expectation)
+Reinforcement counts only on real evidence of use this session. Re-reading
+memory is never reinforcement.
+
+Scope: cross-repo / orchestration knowledge only. Project-intrinsic facts
+("repo X's tests need flag Y") go to that repo's AGENTS.md via a worker PR.
+
+Job history lives in br (closed issues), not here.
+
+Promotion: candidates live in data/candidates.md until a curation pass
+promotes ones that generalize. Capture is not promotion.
+
+Decay: evaluated lazily at curation (session end or every ~10 jobs). Stale
+entries move to data/archive.md with provenance — never delete.
+-->
+EOF
+
+  write_if_absent data/candidates.md <<'EOF'
+# Candidates
+
+<!--
+Contract: append-only capture of reflection candidates. Never loaded wholesale.
+Who writes: the orchestrator, at job completion or failure, when a lesson was observed.
+When: one dated line per candidate. Most jobs yield nothing.
+What: `YYYY-MM-DD <one-line lesson>`. Failures/blockers include a one-sentence
+root cause when a generalization is worth promoting.
+Promotion: candidates stay here until a curation pass inspects data/learnings.md
+and promotes ones that generalize. Capture is not promotion. Never blind-append
+to data/learnings.md.
+Do not rewrite or delete lines.
+-->
+EOF
+
+  write_if_absent data/archive.md <<'EOF'
+# Archive
+
+<!--
+Contract: cold tier for demoted learnings. Never loaded at session start.
+Who writes: the orchestrator, during a curation pass (session end or every
+~10 jobs, whichever comes first).
+When: perishable entries whose named condition is expired (≥7d), or aging
+entries with no reinforcement this period (≥30d), or any entry demoted to
+enforce the data/learnings.md budget.
+What: the original learning line plus provenance — source file, tier, date
+moved, and a one-line reason. Shape:
+  - YYYY-MM-DD (from data/learnings.md, <!--a:…-->, archived YYYY-MM-DD): <entry>. Reason: <why>
+
+Never delete. Recovery is `rg` plus copy-back into data/learnings.md via
+inspect-then-update.
+-->
+EOF
+
+  if ! command -v br >/dev/null 2>&1; then
+    die "br is not installed after phase 1 (unexpected)"
+  fi
+  log "br: $(br --version)"
+
+  if [[ ! -d .beads ]]; then
+    br init --prefix cp
+    log "br init --prefix cp"
+  else
+    log "exists: .beads/"
+  fi
+}
+
+main() {
+  install_deps
+  scaffold
+  log "done — session start: read data/learnings.md, skim data/projects.md, br ready"
+}
+
+main "$@"
