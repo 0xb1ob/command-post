@@ -24,7 +24,7 @@ A clone-and-go orchestration home. Check it out on any machine, start an agent
 CLI session in this directory, and dispatch work into other repos from here.
 
 This repo is a **template plus local state**, not a source tree. Tracked files
-are the operating contract, bootstrap, and design reports. Registry, memory,
+are the operating contract, install scaffold, and design reports. Registry, memory,
 project clones, and br issue state are machine-local (gitignored) and must
 never be committed.
 
@@ -32,13 +32,12 @@ never be committed.
 
 First clone: run `bin/install.sh` once from this repo root (runtime deps +
 scaffold: `data/`, `projects/`, `br init --prefix cp`). Idempotent; safe to
-re-run. `bin/bootstrap.sh` is a backward-compat shim to the same script.
+re-run.
 
 Each session:
 
 1. Read `data/learnings.md` in full (it is budgeted, so this is cheap).
-2. Skim `data/projects.md` for registered repos.
-3. Query in-flight work with `br ready --json`.
+2. Query in-flight work with `br ready --json`.
 
 ## What you do here
 
@@ -381,7 +380,6 @@ Tracked (the template):
 - `AGENTS.md` / `CLAUDE.md` — this contract
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
-- `bin/bootstrap.sh` — backward-compat shim to `bin/install.sh`
 - `reports/` — design research for this repo
 
 Gitignored (this machine):

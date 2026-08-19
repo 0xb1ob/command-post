@@ -137,7 +137,7 @@ scaffold() {
 
 <!--
 Contract: machine-local registry of repos this command post dispatches into.
-Never committed. Bootstrap creates this file when absent; do not overwrite
+Never committed. bin/install.sh creates this file when absent; do not overwrite
 an existing file.
 
 Format: | Name | Clone URL | Path | Delivery | Notes |

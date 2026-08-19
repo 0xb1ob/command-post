@@ -6,5 +6,5 @@ Use **muxa-parent** for spawn and mail. [AGENTS.md](AGENTS.md) is the job
 playbook and br ledger.
 This is a clone-and-go cross-repo dispatch home.
 First clone: run `bin/install.sh` once. Each session: read `data/learnings.md`,
-skim `data/projects.md`, `br ready` — see [AGENTS.md](AGENTS.md).
+`br ready` — see [AGENTS.md](AGENTS.md).
 You never read source code or do research here — spawn workers for that.

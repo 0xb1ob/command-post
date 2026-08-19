@@ -125,14 +125,14 @@ cross-repo use:
 | Completion | `br close <id> --reason "PR: <url>"` |
 | Dropped | `br delete <id>` (tombstone) or `close --reason "dropped: …"` |
 | Session end | no git handoff — `.beads/` stays machine-local (see `AGENTS.md`) |
-| Restart / new lease | same checkout: `.beads/` persists on disk; new clone: `bin/bootstrap.sh` runs `br init` |
+| Restart / new lease | same checkout: `.beads/` persists on disk; new clone: `bin/install.sh` runs `br init` |
 
 ### Restart survival
 
 In command-post, `.beads/` is **local-only and gitignored** — not committed.
 State survives restarts on the **same machine** as long as the checkout and
 `.beads/` directory remain. A fresh clone gets an empty tracker from
-`bin/bootstrap.sh` (`br init --prefix cp`). This is still better than the old
+`bin/install.sh` (`br init --prefix cp`). This is still better than the old
 `backlog.md` pattern (uncommitted markdown that was easy to forget): br gives
 structured queries and closed-issue history on the machine where work ran.
 Upstream br's git-durable JSONL model is documented above for reference;
@@ -181,11 +181,11 @@ clones without export); runtime `muxa jobs` rows are cleared at teardown.
 ### Exact setup steps for command-post (one-time)
 
 Adopted in this repo — see [`AGENTS.md`](../AGENTS.md) and
-[`bin/bootstrap.sh`](../bin/bootstrap.sh):
+[`bin/install.sh`](../bin/install.sh):
 
 ```bash
 # first session in a fresh checkout
-bin/bootstrap.sh                 # creates data/, projects/, runs br init --prefix cp if .beads/ absent
+bin/install.sh                   # creates data/, projects/, runs br init --prefix cp if .beads/ absent
 export RUST_LOG=error            # optional; keeps br output parseable
 ```
 

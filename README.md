@@ -18,8 +18,6 @@ Then open your agent CLI (Claude Code, Cursor, Codex, …) with this directory
 as the workspace. Each session the agent reads memory and checks in-flight
 work (see [AGENTS.md](AGENTS.md)); no need to re-run `bin/install.sh`.
 
-`bin/bootstrap.sh` is a backward-compat shim to `bin/install.sh`.
-
 ### `bin/install.sh`
 
 Idempotent clone-and-go setup. Takes no arguments. It:
@@ -52,7 +50,6 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold) |
-| `bin/bootstrap.sh` | yes | Backward-compat shim to `bin/install.sh` |
 | `reports/` | yes | Design research for this repo |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `projects/` | **no** | Cloned repos, one directory per name |
