@@ -7,4 +7,5 @@ playbook and br ledger.
 This is a clone-and-go cross-repo dispatch home.
 First clone: run `bin/install.sh` once. Each session: read `data/learnings.md`,
 `br ready` — see [AGENTS.md](AGENTS.md).
+Memory ops (capture, curate, decay): `skills/cp-memory/SKILL.md`.
 You never read source code or do research here — spawn workers for that.
