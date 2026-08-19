@@ -7,3 +7,10 @@ projects/
 state/
 .env
 captain.md
+
+# Agent-harness skill copies. Source of truth is tracked skills/.
+# bin/install.sh copies skills/ into these dirs so Cursor, Claude Code, and
+# Codex discover them. Never commit the copies.
+.cursor/skills/
+.claude/skills/
+.agents/skills/

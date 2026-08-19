@@ -34,6 +34,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 1. Creates `data/` (registry + memory files with their contracts) if missing
 2. Creates `projects/` if missing
 3. Runs `br init --prefix cp` if `.beads/` is absent
+4. Copies tracked `skills/` into gitignored harness dirs (`.cursor/skills`, `.claude/skills`, `.agents/skills`) so Cursor, Claude Code, and Codex discover them
 
 Put `~/.local/bin` on your `PATH` if it is not already. Re-run anytime; existing
 `br` / `treehouse` installs are skipped, muxa is refreshed, scaffold steps are no-ops when already present.
@@ -49,13 +50,15 @@ worker.
 |------|----------|------|
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
-| `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold) |
+| `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies) |
 | `reports/` | yes | Design research for this repo |
+| `skills/` | yes | Canonical agent skills (`session-memory`) |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
+| `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` | **no** | Harness copies of `skills/` from `bin/install.sh` |
 
-Do not commit `data/`, `projects/`, or `.beads/`.
+Do not commit `data/`, `projects/`, `.beads/`, or harness skill copies.
 
 ## What the agent uses
 

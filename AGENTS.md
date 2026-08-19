@@ -31,8 +31,8 @@ never be committed.
 ## Session start
 
 First clone: run `bin/install.sh` once from this repo root (runtime deps +
-scaffold: `data/`, `projects/`, `br init --prefix cp`). Idempotent; safe to
-re-run.
+scaffold: `data/`, `projects/`, `br init --prefix cp`, copy `skills/` into
+harness dirs). Idempotent; safe to re-run.
 
 Each session:
 
@@ -329,7 +329,7 @@ br count --by label --include-closed --json
 
 ## Memory
 
-Ops: follow **session-memory** at `.cursor/skills/session-memory/SKILL.md`.
+Ops: follow **session-memory** at `skills/session-memory/SKILL.md`.
 Triggers: worker result or failure (capture); session end; whenever
 `data/learnings.md` is touched; every ~10 jobs; or when asked to
 curate, consolidate, or archive memory.
@@ -386,7 +386,7 @@ Tracked (the template):
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `reports/` — design research for this repo
-- `.cursor/skills/` — project skills (session-memory)
+- `skills/` — canonical agent skills (session-memory); `bin/install.sh` copies into harness dirs
 
 Gitignored (this machine):
 
@@ -397,3 +397,4 @@ Gitignored (this machine):
 - `projects/` — cloned repos
 - `.beads/` — local br state. Not committed.
 - `captain.md` — caller preferences (optional)
+- `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` — harness copies of `skills/` (never commit)

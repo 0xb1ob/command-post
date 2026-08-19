@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Idempotent command-post setup. No arguments.
 # Phase 1 (deps): muxa, br (beads), treehouse — skip if already on PATH.
-# Phase 2 (scaffold): data/, projects/, data/*.md templates, br init --prefix cp.
-# Run once after clone; safe to re-run (muxa refreshes skills/hooks).
+# Phase 2 (scaffold): data/, projects/, data/*.md templates, br init --prefix cp,
+# copy tracked skills/ into gitignored agent-harness skill dirs.
+# Run once after clone; safe to re-run (muxa refreshes skills/hooks; skill copies refresh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -238,6 +239,38 @@ EOF
   else
     log "exists: .beads/"
   fi
+
+  copy_skills_to_harness
+}
+
+# Tracked source of truth is skills/. Agent CLIs discover project skills under
+# their own dirs, so install copies (never symlinks) into those gitignored
+# locations. Re-run refreshes copies from skills/. Extra local skills already
+# in a harness dir are left in place.
+copy_skills_to_harness() {
+  local src="$ROOT/skills"
+  if [[ ! -d "$src" ]]; then
+    log "skills: none at $src"
+    return 0
+  fi
+
+  local dests=(
+    ".cursor/skills" # Cursor
+    ".claude/skills" # Claude Code
+    ".agents/skills" # Codex
+  )
+
+  local dest skill_dir name
+  for dest in "${dests[@]}"; do
+    mkdir -p "$ROOT/$dest"
+    for skill_dir in "$src"/*; do
+      [[ -d "$skill_dir" ]] || continue
+      name="$(basename "$skill_dir")"
+      rm -rf "$ROOT/$dest/$name"
+      cp -R "$skill_dir" "$ROOT/$dest/$name"
+    done
+    log "skills: copied to $dest"
+  done
 }
 
 main() {
