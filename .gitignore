@@ -1,0 +1,4 @@
+# Runtime state (not tracked)
+state/
+.env
+captain.md
