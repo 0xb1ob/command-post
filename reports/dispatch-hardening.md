@@ -6,8 +6,8 @@ Contract: [AGENTS.md](../AGENTS.md) Pre-dispatch
 
 Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
-not repeated. Job orchestration stays in command-post. Muxa stays spawn/mail/
-preflight — do not add this logic to muxa.
+not repeated. Promotion and treehouse lease recovery stay in command-post.
+Occupied-cwd detection belongs in `muxa spawn --cwd`, not here.
 
 ## 1. Duplicate spawn instead of promotion
 
@@ -30,8 +30,9 @@ worktree returned, or job is independent (other repo / second worktree)
   → muxa spawn --cwd <worktree>
 ```
 
-Before spawn: `muxa who` (CWD column), or `bin/dispatch-check.sh --cwd <worktree>`.
-Exit 1 means promote. Ghost panes: `muxa unregister`, do not promote.
+Before spawn: `muxa who` (CWD column). `muxa spawn --cwd` warns if a
+registered worker already occupies that path — promote with `muxa send`,
+do not spawn a second pane. Ghost panes: `muxa unregister`, do not promote.
 
 ## 2. Stale clone / "belongs to another repo"
 
@@ -62,6 +63,8 @@ preflight is not "treehouse unavailable."
 
 - Before `muxa spawn`, check `muxa who` for an idle worker on the target
   worktree; promote with `muxa send` instead of duplicate spawn.
+  Occupied cwd is muxa's warning on `muxa spawn --cwd`, not a command-post
+  helper.
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.

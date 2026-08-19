@@ -294,7 +294,7 @@ main() {
   install_deps
   scaffold
   warn_stale_home_clones
-  log "done — session start: read data/learnings.md, skim data/projects.md, br ready"
+  log "done — once after clone. Session start: read data/learnings.md, br ready"
 }
 
 main "$@"

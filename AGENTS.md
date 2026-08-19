@@ -38,8 +38,6 @@ Each session:
 
 1. Read `data/learnings.md` in full (it is budgeted, so this is cheap).
 2. Query in-flight work with `br ready --json`.
-3. Before any spawn, run the [Pre-dispatch](#pre-dispatch) checklist (promote
-   idle workers; lease only from `projects/<name>`).
 
 ## What you do here
 
@@ -89,14 +87,17 @@ brief. Do not spawn a duplicate. See [Pre-dispatch](#pre-dispatch).
 ## Pre-dispatch
 
 Run this checklist **before every `muxa spawn`**. Fail closed. A small job is
-not an exception. Job orchestration lives here, not in muxa.
+not an exception. Promotion and lease recovery live here. Occupied-cwd
+detection is muxa's: `muxa spawn --cwd` warns if a registered worker already
+sits on that path.
 
 ### Checklist
 
 1. **Idle worker already on the target worktree?** Read `muxa who` (CWD
    column). If a live worker is sitting on that path, **promote** it with
-   `muxa send` — do not spawn a duplicate. Optional helper:
-   `bin/dispatch-check.sh --cwd <worktree>` (exit 1 = collision).
+   `muxa send` — do not spawn a duplicate. `muxa spawn --cwd` warns when
+   that path is occupied; treat the warning as promote-not-spawn. Do not
+   reimplement occupancy checks here.
 2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
    in `data/projects.md`). One clone path per project. Extra checkouts
    (`~/command-post`, …) are not lease sources.
