@@ -50,7 +50,7 @@ Do not commit `data/`, `projects/`, or `.beads/`.
 
 - **GitHub Issues** — the real product backlog, when the caller points at one
 - **`br`** — current jobs in this command post, and closed issues as job history
-- **`muxa jobs`** — runtime-only (worker / worktree / pane); gone at teardown
+- **`muxa jobs`** — runtime-only (worker / worktree); gone at teardown
 - **`data/learnings.md`** — budgeted cross-repo memory (see `AGENTS.md`)
 
 `br` is not a mirror of GitHub. Install it with:
@@ -59,7 +59,8 @@ Do not commit `data/`, `projects/`, or `.beads/`.
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
 ```
 
-Worker dispatch also expects `muxa` and `treehouse` on `PATH`.
+Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Spawn and mail
+use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`.
 
 ## Contract
 
