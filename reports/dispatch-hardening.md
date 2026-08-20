@@ -7,7 +7,9 @@ Contract: [AGENTS.md](../AGENTS.md) Pre-dispatch
 Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
 not repeated. Promotion and treehouse lease recovery stay in command-post.
-Occupied-cwd detection belongs in `muxa spawn --cwd`, not here.
+Occupied-cwd warning belongs in `muxa spawn --cwd`. `bin/cp check` fail-closes
+that policy (reads `muxa who`, promote-not-spawn) plus clone/worktree facts via
+`muxa preflight`. Do not reimplement `muxa spawn`.
 
 ## 1. Duplicate spawn instead of promotion
 
@@ -30,9 +32,10 @@ worktree returned, or job is independent (other repo / second worktree)
   → muxa spawn --cwd <worktree>
 ```
 
-Before spawn: `muxa who` (CWD column). `muxa spawn --cwd` warns if a
-registered worker already occupies that path — promote with `muxa send`,
-do not spawn a second pane. Ghost panes: `muxa unregister`, do not promote.
+Before spawn: `bin/cp check --project <name> <worktree>` (and `muxa who` CWD
+column). `muxa spawn --cwd` warns if a registered worker already occupies
+that path — promote with `muxa send`, do not spawn a second pane. Ghost
+panes: `muxa unregister`, do not promote.
 
 ## 2. Stale clone / "belongs to another repo"
 
@@ -51,7 +54,7 @@ mis-pointed.
    rename extra clones (`~/command-post`, …) so they are not lease cwd
 3. Re-lease from the canonical clone (`treehouse get --lease` with cwd
    `projects/<name>`)
-4. `muxa preflight` on the new path
+4. `bin/cp check --project <name> <worktree>` on the new path
 
 `git worktree add` only when treehouse is **not installed**. A wrong-repo
 preflight is not "treehouse unavailable."
@@ -61,10 +64,10 @@ preflight is not "treehouse unavailable."
 
 ## Orchestration notes
 
-- Before `muxa spawn`, check `muxa who` for an idle worker on the target
-  worktree; promote with `muxa send` instead of duplicate spawn.
-  Occupied cwd is muxa's warning on `muxa spawn --cwd`, not a command-post
-  helper.
+- Before `muxa spawn`, run `bin/cp check --project <name> <worktree>`.
+  Promote with `muxa send` instead of duplicate spawn. Occupied cwd is
+  muxa's warning on `muxa spawn --cwd`; the checker applies promote-not-spawn
+  from `muxa who` and does not reimplement spawn.
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.
