@@ -51,25 +51,11 @@ install_muxa() {
     log "muxa: installing from $MUXA_INSTALL_URL"
   fi
 
-  if curl -fsSL "$MUXA_INSTALL_URL" 2>/dev/null | MUXA_BIN_DIR="$BIN" bash; then
+  if curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" bash; then
     return 0
   fi
 
-  # muxa repo is private; fall back to gh-authenticated clone when curl 404s.
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    local home="${MUXA_HOME:-$HOME/.muxa}"
-    log "muxa: curl install failed; trying gh repo clone -> $home"
-    if [[ -d "$home/.git" ]]; then
-      git -C "$home" fetch --depth 1 origin main
-      git -C "$home" merge --ff-only origin/main
-    else
-      gh repo clone 0xb1ob/muxa "$home" -- --depth 1
-    fi
-    MUXA_BIN_DIR="$BIN" bash "$home/install.sh"
-    return 0
-  fi
-
-  die "muxa install failed. Need access to github.com/0xb1ob/muxa (private repo) or set MUXA_INSTALL_URL."
+  die "muxa install failed (could not fetch or run $MUXA_INSTALL_URL). Check network, or set MUXA_INSTALL_URL."
 }
 
 install_br() {

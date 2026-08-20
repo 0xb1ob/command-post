@@ -88,16 +88,17 @@ brief. Do not spawn a duplicate. See [Pre-dispatch](#pre-dispatch).
 
 Run this checklist **before every `muxa spawn`**. Fail closed. A small job is
 not an exception. Promotion and lease recovery live here. Occupied-cwd
-detection is muxa's: `muxa spawn --cwd` warns if a registered worker already
-sits on that path.
+warning is muxa's (`muxa spawn --cwd`). Run `bin/cp check` before spawn: it
+fail-closes clone/worktree facts and promote-not-spawn. It does not spawn,
+send mail, or write `muxa jobs`. Do not reimplement `muxa spawn`.
 
 ### Checklist
 
-1. **Idle worker already on the target worktree?** Read `muxa who` (CWD
-   column). If a live worker is sitting on that path, **promote** it with
-   `muxa send` — do not spawn a duplicate. `muxa spawn --cwd` warns when
-   that path is occupied; treat the warning as promote-not-spawn. Do not
-   reimplement occupancy checks here.
+1. **Idle worker already on the target worktree?** If a live worker is sitting
+   on that path, **promote** it with `muxa send` — do not spawn a duplicate.
+   `muxa spawn --cwd` warns when that path is occupied; treat the warning as
+   promote-not-spawn. `bin/cp check` fail-closes the same policy from
+   `muxa who`.
 2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
    in `data/projects.md`). One clone path per project. Extra checkouts
    (`~/command-post`, …) are not lease sources.
@@ -105,9 +106,18 @@ sits on that path.
    = `projects/<name>`. Confirm the printed path is a linked worktree of that
    clone (`git -C <worktree> rev-parse --git-common-dir` resolves under
    `projects/<name>/.git`).
-4. **Preflight.** From the canonical clone:
-   `muxa preflight [--base BRANCH] <worktree>`. If it reports the worktree
-   **belongs to another repo**, recover (below). Do not `git worktree add`.
+4. **Precheck.** From this command-post home, after the lease (or with the
+   worktree you would spawn into):
+
+   ```bash
+   bin/cp check --project <name> [--base BRANCH] <worktree>...
+   ```
+
+   This verifies `projects/<name>` (not `~/name`, not a nested wrong git),
+   reuses `muxa preflight` so each worktree's git-common-dir is that clone's
+   `.git`, and exits non-zero with promote-not-spawn when a live worker
+   occupies the cwd. If it reports **belongs to another repo** (via muxa
+   preflight), recover (below). Do not `git worktree add`.
 5. **`muxa jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn.
    Do not set `pr`, `status`, or `note=<br-id>`. Kind, delivery, status, and
    PR URL live on the br issue.
@@ -150,7 +160,7 @@ wrong.
    rename extra clones so they are not used as cwd for `treehouse get`
 3. Re-lease from the canonical clone: `treehouse get --lease` with cwd
    `projects/<name>`
-4. Re-run `muxa preflight` on the new path
+4. Re-run `bin/cp check --project <name> <worktree>` on the new path
 
 `git worktree add` is allowed only when **treehouse is not installed**. A
 treehouse failure is not "treehouse unavailable."
@@ -183,14 +193,15 @@ One worktree per worker.
    allowed. If treehouse is installed and lease or preflight fails, recover
    under [Pre-dispatch](#pre-dispatch) — do not fall back to `git worktree add`
    under `projects/.worktrees/`.
-3. Preflight before briefing — the clone's primary checkout must sit on the
-   default branch so no worker branch is tangled under it, and each path must
-   be a linked worktree of **this** clone, not the primary checkout and not
-   another repo's worktree:
+3. Precheck before briefing — from this command-post home:
 
    ```bash
-   muxa preflight [--base BRANCH] WORKTREE...
+   bin/cp check --project <name> [--base BRANCH] WORKTREE...
    ```
+
+   The checker fail-closes `projects/<name>`, reuses `muxa preflight` (primary
+   on the default branch; each path a linked worktree of **that** clone), and
+   treats a live occupant as promote-not-spawn. It does not spawn or mail.
 
 4. Spawn into the leased worktree (`muxa spawn --cwd <worktree>`, or `cd` then
    spawn). Confirm spawn stdout `cwd=` is the worktree before briefing. Brief
@@ -468,6 +479,7 @@ Tracked (the template):
 - `AGENTS.md` / `CLAUDE.md` — this contract
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
+- `bin/cp` — dispatch precheck (`check`; no spawn, mail, jobs, or br)
 - `reports/` — design research for this repo
 - `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 

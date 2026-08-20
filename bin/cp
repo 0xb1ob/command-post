@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# Fail-closed dispatch precheck. Invoked from the command-post repo.
+# Does not spawn, send mail, write muxa jobs, or wrap br.
+#
+# Usage:
+#   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
+#
+# Exit:
+#   0  all checks passed
+#   1  check failed (wrong clone, muxa preflight, or promote-not-spawn)
+#   2  usage / missing tools
+#
+# Checks:
+#   1. Canonical clone is <command-post-home>/projects/<name> — not ~/name,
+#      not a nested directory of another git, not a worktree of another clone.
+#   2. Each WORKTREE is a linked worktree of that clone (muxa preflight;
+#      do not duplicate muxa). muxa preflight is run with cwd = the clone.
+#   3. If muxa who shows a live registered worker occupying a target worktree
+#      cwd, fail with promote-not-spawn. Occupancy is muxa spawn --cwd's
+#      warning; this checker reads muxa who and applies command-post policy.
+#      It does not call muxa spawn.
+#
+# Command-post home is this script's repo root, or CP_HOME if set.
+# Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI.
+set -euo pipefail
+
+PROG="${BASH_SOURCE[0]}"
+ROOT="$(cd "$(dirname "$PROG")/.." && pwd)"
+CP_HOME="${CP_HOME:-$ROOT}"
+
+usage() {
+  printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
+  exit 2
+}
+
+die() { printf '[cp] error: %s\n' "$*" >&2; exit 1; }
+die_usage() { printf '[cp] error: %s\n' "$*" >&2; usage; }
+log() { printf '[cp] %s\n' "$*"; }
+
+abs_git_common() {
+  local d="$1" g parent
+  g="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  if [[ "$g" != /* ]]; then
+    g="$d/$g"
+  fi
+  parent="$(cd "$(dirname "$g")" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$g")"
+}
+
+normalize_path() {
+  local p="$1" d b
+  if [[ -d "$p" ]]; then
+    (cd "$p" && pwd -P)
+    return 0
+  fi
+  d="$(dirname "$p")"
+  b="$(basename "$p")"
+  if [[ -d "$d" ]]; then
+    printf '%s/%s\n' "$(cd "$d" && pwd -P)" "$b"
+  else
+    printf '%s\n' "$p"
+  fi
+}
+
+require_muxa() {
+  if ! command -v muxa >/dev/null 2>&1 && [[ -z "${MUXA_WHO_CMD:-}" ]]; then
+    printf '[cp] error: muxa not on PATH\n' >&2
+    exit 2
+  fi
+}
+
+assert_canonical_clone() {
+  local name="$1"
+  local clone="$CP_HOME/projects/$name"
+  local clone_abs toplevel common gitdir home_abs
+
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    die "invalid project name: $name (use the data/projects.md Name slug)"
+  fi
+  if [[ ! -d "$clone" ]]; then
+    die "project clone not at $clone (command-post home $CP_HOME). Clone into projects/$name; not ~/$name."
+  fi
+
+  clone_abs="$(cd "$clone" && pwd -P)"
+
+  if [[ -d "$HOME/$name" ]]; then
+    home_abs="$(cd "$HOME/$name" && pwd -P)"
+    if [[ "$clone_abs" == "$home_abs" ]]; then
+      die "projects/$name resolves to ~/$name ($clone_abs). Lease only from command-post projects/<name>."
+    fi
+  fi
+
+  toplevel="$(git -C "$clone_abs" rev-parse --show-toplevel 2>/dev/null)" \
+    || die "not a git clone: $clone_abs"
+  toplevel="$(cd "$toplevel" && pwd -P)"
+  if [[ "$toplevel" != "$clone_abs" ]]; then
+    die "nested wrong git: $clone_abs is inside $toplevel — need a clone at projects/$name"
+  fi
+
+  if [[ ! -d "$clone_abs/.git" ]]; then
+    die "projects/$name is not a primary clone ($clone_abs/.git is not a directory; another repo's worktree?)"
+  fi
+
+  common="$(abs_git_common "$clone_abs")" \
+    || die "cannot resolve git-common-dir for $clone_abs"
+  gitdir="$(cd "$clone_abs/.git" && pwd -P)"
+  if [[ "$common" != "$gitdir" ]]; then
+    die "projects/$name git-common-dir is $common, not $gitdir. Lease only from the canonical clone."
+  fi
+
+  printf '%s\n' "$clone_abs"
+}
+
+run_muxa_preflight() {
+  local clone="$1"
+  shift
+  local -a args=()
+  [[ -n "${BASE:-}" ]] && args+=(--base "$BASE")
+  args+=("$@")
+
+  if ! command -v muxa >/dev/null 2>&1; then
+    printf '[cp] error: muxa not on PATH (needed for preflight)\n' >&2
+    exit 2
+  fi
+
+  # muxa preflight keys off the git repo of cwd. Run it from the canonical
+  # clone so worktrees are checked against projects/<name>/.git.
+  if ! (cd "$clone" && muxa preflight "${args[@]}"); then
+    printf '[cp] muxa preflight failed for clone %s\n' "$clone" >&2
+    return 1
+  fi
+}
+
+# muxa who is a space-padded table. PARENT may be empty, so parse from the
+# right: CWD is last, STATUS is 6th-from-last (live|ghost). NAME is first.
+check_occupancy() {
+  local -a targets=()
+  local t line name status cwd resolved self collisions ghost_hits
+  local -a who_cmd
+  collisions=0
+  ghost_hits=0
+
+  for t in "$@"; do
+    targets+=("$(normalize_path "$t")")
+  done
+
+  if [[ -n "${MUXA_WHO_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    who_cmd=($MUXA_WHO_CMD)
+  else
+    who_cmd=(muxa who)
+  fi
+
+  self="${MUXA_WHOAMI:-}"
+  if [[ -z "$self" && -z "${MUXA_WHO_CMD:-}" ]] && command -v muxa >/dev/null 2>&1; then
+    self="$(muxa whoami 2>/dev/null || true)"
+  fi
+
+  local who_out
+  if ! who_out="$("${who_cmd[@]}")"; then
+    printf '[cp] error: muxa who failed\n' >&2
+    exit 2
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    [[ "$line" == NAME* ]] && continue
+
+    local -a fields=()
+    read -r -a fields <<< "$line"
+    ((${#fields[@]} >= 7)) || continue
+
+    name="${fields[0]}"
+    cwd="${fields[${#fields[@]} - 1]}"
+    status="${fields[${#fields[@]} - 6]}"
+    resolved="$(normalize_path "$cwd")"
+
+    [[ -n "$self" && "$name" == "$self" ]] && continue
+
+    local hit=0
+    for t in "${targets[@]}"; do
+      if [[ "$resolved" == "$t" ]]; then
+        hit=1
+        break
+      fi
+    done
+    [[ "$hit" -eq 1 ]] || continue
+
+    case "$status" in
+      live)
+        printf '[cp] promote-not-spawn: live worker %s occupies %s\n' "$name" "$resolved" >&2
+        printf '[cp] same worktree still held → muxa send %s (do not muxa spawn, do not treehouse get --lease)\n' "$name" >&2
+        collisions=$((collisions + 1))
+        ;;
+      ghost)
+        printf '[cp] occupied cwd: ghost worker %s on %s — muxa unregister; do not promote, do not spawn\n' "$name" "$resolved" >&2
+        ghost_hits=$((ghost_hits + 1))
+        ;;
+      *)
+        printf '[cp] occupied cwd: worker %s (status %s) on %s — do not spawn\n' "$name" "$status" "$resolved" >&2
+        collisions=$((collisions + 1))
+        ;;
+    esac
+  done <<< "$who_out"
+
+  if [[ "$collisions" -gt 0 || "$ghost_hits" -gt 0 ]]; then
+    return 1
+  fi
+  log "clear: no other live registered worker on the given worktree(s)"
+}
+
+cmd_check() {
+  local project=""
+  local -a worktrees=()
+  BASE=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ $# -ge 2 ]] || die_usage "--project needs NAME"
+        project="$2"
+        shift 2
+        ;;
+      --base)
+        [[ $# -ge 2 ]] || die_usage "--base needs BRANCH"
+        BASE="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        ;;
+      --)
+        shift
+        worktrees+=("$@")
+        break
+        ;;
+      -*)
+        die_usage "unknown flag $1"
+        ;;
+      *)
+        worktrees+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$project" ]] || die_usage "missing --project NAME"
+  [[ ${#worktrees[@]} -gt 0 ]] || die_usage "missing WORKTREE"
+
+  require_muxa
+
+  local clone rc=0
+  clone="$(assert_canonical_clone "$project")" || exit $?
+  log "clone $clone"
+
+  if ! run_muxa_preflight "$clone" "${worktrees[@]}"; then
+    rc=1
+  fi
+  if ! check_occupancy "${worktrees[@]}"; then
+    rc=1
+  fi
+  [[ "$rc" -eq 0 ]] || exit 1
+  log "ok"
+}
+
+main() {
+  [[ $# -gt 0 ]] || usage
+  case "$1" in
+    check)
+      shift
+      cmd_check "$@"
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      die_usage "unknown command $1 (want: check)"
+      ;;
+  esac
+}
+
+main "$@"
