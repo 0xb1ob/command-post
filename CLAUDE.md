@@ -3,7 +3,8 @@
 See [AGENTS.md](AGENTS.md) for the full operating contract.
 
 Use **muxa-parent** for spawn and mail. [AGENTS.md](AGENTS.md) is the job
-playbook and br ledger.
+playbook and br ledger. muxa owns the transport; this repo owns the work
+([boundary](AGENTS.md#muxa--command-post-boundary)).
 This is a clone-and-go cross-repo dispatch home.
 First clone: run `bin/install.sh` once. Each session: read `data/learnings.md`,
 `br ready` — see [AGENTS.md](AGENTS.md).
