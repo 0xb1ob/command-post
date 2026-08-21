@@ -304,7 +304,7 @@ copy_skills_to_harness() {
 
 # treehouse get --lease keys off the git repo of cwd. A leftover clone at
 # $HOME/<name> (e.g. ~/command-post) can hand out a worktree that fails
-# muxa preflight ("belongs to another repo"). Warn; do not delete anything.
+# bin/cp check ("belongs to another repo"). Warn; do not delete anything.
 abs_git_common() {
   local d="$1" g parent
   g="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1
