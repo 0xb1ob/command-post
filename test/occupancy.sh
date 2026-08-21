@@ -2,7 +2,8 @@
 # Unit tests for bin/cp check occupancy via muxa who --json (stubbed; not a
 # live dispatch E2E). Occupancy is the JSON roster shape, never the human
 # table, and never who --json's exit status (pre-#49 printed the table with
-# exit 0). Run from the command-post repo: test/occupancy.sh
+# exit 0). state is idle|busy|ghost (status key is gone). Run from the
+# command-post repo: test/occupancy.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,20 +66,29 @@ EOF
 expect_rc_msg 0 "clear: no other live registered worker" "empty who --json is clear" \
   "$CP" check --project demo "$WT"
 
-# live occupant → promote-not-spawn; remedy names muxa send X
+# idle occupant → promote-not-spawn; remedy names muxa send X
 set_who <<EOF
-[{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$WT","status":"live"}]
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$WT"}]
 EOF
-expect_rc_msg 1 "promote-not-spawn: live worker swift-oak occupies" "live occupant is promote-not-spawn" \
+expect_rc_msg 1 "promote-not-spawn: live worker swift-oak occupies" "idle occupant is promote-not-spawn" \
   "$CP" check --project demo "$WT"
-expect_rc_msg 1 "muxa send swift-oak" "promote remedy names muxa send X" \
+expect_rc_msg 1 "muxa send swift-oak" "idle promote remedy names muxa send X" \
   "$CP" check --project demo "$WT"
-expect_rc_msg 1 "do not muxa dispatch" "live occupant forbids a second dispatch" \
+expect_rc_msg 1 "do not muxa dispatch" "idle occupant forbids a second dispatch" \
   "$CP" check --project demo "$WT"
 
-# ghost occupant
+# busy occupant → same promote-not-spawn path (drawing disappeared; it is busy)
 set_who <<EOF
-[{"name":"gone-fox","id":"def","parent":"crisp-oak","kind":"cursor","state":"idle","pane":"%2","session":null,"cwd":"$WT","status":"ghost"}]
+[{"name":"busy-lark","id":"bcd","parent":null,"kind":"cursor","state":"busy","pane":"%4","session":null,"cwd":"$WT"}]
+EOF
+expect_rc_msg 1 "promote-not-spawn: live worker busy-lark occupies" "busy occupant is promote-not-spawn" \
+  "$CP" check --project demo "$WT"
+expect_rc_msg 1 "muxa send busy-lark" "busy promote remedy names muxa send X" \
+  "$CP" check --project demo "$WT"
+
+# ghost occupant (state=ghost; not idle+status=ghost)
+set_who <<EOF
+[{"name":"gone-fox","id":"def","parent":"crisp-oak","kind":"cursor","state":"ghost","pane":"%2","session":null,"cwd":"$WT"}]
 EOF
 expect_rc_msg 1 "ghost worker gone-fox" "ghost occupant is occupied-cwd" \
   "$CP" check --project demo "$WT"
@@ -86,11 +96,13 @@ expect_rc_msg 1 "muxa kill NAME|ID" "ghost remedy is muxa kill NAME|ID" \
   "$CP" check --project demo "$WT"
 expect_rc_msg 1 "restart the CLI in that pane" "ghost remedy offers restarting the CLI" \
   "$CP" check --project demo "$WT"
+expect_rc_msg 1 "do not promote" "ghost occupant is not a promote" \
+  "$CP" check --project demo "$WT"
 
 # skip self
 export MUXA_WHOAMI=swift-oak
 set_who <<EOF
-[{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"busy","pane":"%1","session":null,"cwd":"$WT","status":"live"}]
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"busy","pane":"%1","session":null,"cwd":"$WT"}]
 EOF
 expect_rc_msg 0 "clear: no other live registered worker" "self on the worktree is not a collision" \
   "$CP" check --project demo "$WT"
@@ -98,36 +110,59 @@ unset MUXA_WHOAMI
 
 # other cwd does not collide
 set_who <<EOF
-[{"name":"other-owl","id":"xyz","parent":null,"kind":"claude","state":"idle","pane":"%3","session":null,"cwd":"/tmp/elsewhere","status":"live"}]
+[{"name":"other-owl","id":"xyz","parent":null,"kind":"claude","state":"idle","pane":"%3","session":null,"cwd":"/tmp/elsewhere"}]
 EOF
-expect_rc_msg 0 "clear: no other live registered worker" "live worker on another cwd is clear" \
+expect_rc_msg 0 "clear: no other live registered worker" "idle worker on another cwd is clear" \
+  "$CP" check --project demo "$WT"
+
+# leftover status key is ignored; occupancy reads state
+set_who <<EOF
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$WT","status":"ghost"}]
+EOF
+expect_rc_msg 1 "promote-not-spawn: live worker swift-oak occupies" "leftover status key is ignored; state wins" \
+  "$CP" check --project demo "$WT"
+
+# unknown state → fail closed (drawing disappeared; it is not a state value)
+set_who <<EOF
+[{"name":"odd-elk","id":"eee","parent":null,"kind":"cursor","state":"drawing","pane":"%5","session":null,"cwd":"$WT"}]
+EOF
+expect_rc_msg 1 "worker odd-elk (state drawing)" "unknown state fail-closes" \
+  "$CP" check --project demo "$WT"
+expect_rc_msg 1 "do not dispatch" "unknown state forbids dispatch" \
+  "$CP" check --project demo "$WT"
+
+# missing state → fail closed (roster contract; empty TSV would collapse)
+set_who <<EOF
+[{"name":"blank-auk","id":"fff","parent":null,"kind":"cursor","pane":"%6","session":null,"cwd":"$WT"}]
+EOF
+expect_rc_msg 2 "missing state" "missing state fail-closes" \
   "$CP" check --project demo "$WT"
 
 # human table with exit 0 is not occupancy-clear (pre-#49 who --json)
 set_who <<'EOF'
-NAME             ID     STATUS   CWD
-swift-oak        abc    live     /tmp/wt
+NAME             ID     STATE    CWD
+swift-oak        abc    idle     /tmp/wt
 EOF
 expect_rc_msg 2 "not JSON" "human who table with exit 0 is rejected (shape, not status)" \
   "$CP" check --project demo "$WT"
 
 # object instead of array
 set_who <<'EOF'
-{"name":"swift-oak","status":"live","cwd":"/tmp"}
+{"name":"swift-oak","state":"idle","cwd":"/tmp"}
 EOF
 expect_rc_msg 2 "expected an array" "who --json object (not array) is rejected" \
   "$CP" check --project demo "$WT"
 
 # array of non-objects
 set_who <<'EOF'
-["swift-oak", "live"]
+["swift-oak", "idle"]
 EOF
 expect_rc_msg 2 "expected objects" "who --json array of non-objects is rejected" \
   "$CP" check --project demo "$WT"
 
-# occupancy keys name/status/cwd; extra fields are ignored (JSON shape, not table)
+# occupancy keys name/state/cwd; extra fields are ignored (JSON shape, not table)
 set_who <<EOF
-[{"name":"lean-jay","status":"live","cwd":"$WT","extra":true}]
+[{"name":"lean-jay","state":"idle","cwd":"$WT","extra":true}]
 EOF
 expect_rc_msg 1 "promote-not-spawn: live worker lean-jay occupies" "minimal JSON shape is enough to occupy" \
   "$CP" check --project demo "$WT"
@@ -135,7 +170,7 @@ expect_rc_msg 1 "promote-not-spawn: live worker lean-jay occupies" "minimal JSON
 # stub that exits 0 after printing the human table (explicit status-vs-shape)
 cat > "$TMP/who-table.sh" <<'EOF'
 #!/bin/sh
-printf '%s\n' 'NAME  ID  STATUS  CWD' 'swift-oak  abc  live  /tmp/wt'
+printf '%s\n' 'NAME  ID  STATE  CWD' 'swift-oak  abc  idle  /tmp/wt'
 exit 0
 EOF
 chmod +x "$TMP/who-table.sh"
