@@ -25,6 +25,21 @@ on_path() {
   esac
 }
 
+# Resolve symlinks like muxa broker_bin_path (while readlink + pwd -P).
+canonical_path() {
+  local src="$1" dir target
+  while [ -L "$src" ]; do
+    dir="$(dirname "$src")"
+    target="$(readlink "$src")"
+    case "$target" in
+      /*) src="$target" ;;
+      *) src="$dir/$target" ;;
+    esac
+  done
+  dir="$(cd "$(dirname "$src")" && pwd -P)"
+  printf '%s/%s\n' "$dir" "$(basename "$src")"
+}
+
 ensure_bin_dir() {
   mkdir -p "$BIN"
   if ! on_path "$BIN"; then
@@ -34,16 +49,14 @@ ensure_bin_dir() {
 
 require_prereqs() {
   local missing=0
-  # python3: muxa's installer merges agent hooks with it, and we use it to
-  # resolve the realpath of bin/muxa when locating muxa-broker.
-  for cmd in git curl tmux python3; do
+  for cmd in git curl tmux; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       warn "$cmd is required but not found"
       missing=1
     fi
   done
   if [[ "$missing" -ne 0 ]]; then
-    die "install git, curl, tmux, and python3 first (muxa needs tmux and python3; all are used below)"
+    die "install git, curl, and tmux first (muxa needs tmux; all are used below)"
   fi
 }
 
@@ -86,7 +99,7 @@ check_muxa_broker() {
   fi
   [[ -n "$muxa_bin" && -e "$muxa_bin" ]] || { warn "muxa-broker: no muxa at $BIN/muxa or on PATH"; return 0; }
 
-  real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$muxa_bin")"
+  real="$(canonical_path "$muxa_bin")"
   bin_dir="$(dirname "$real")"
   broker="$bin_dir/muxa-broker"
 
