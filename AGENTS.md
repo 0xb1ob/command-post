@@ -79,10 +79,10 @@ capability.
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
   reads muxa who --json and applies command-post policy. It does not call
-  muxa dispatch or muxa spawn." Do not reimplement `muxa dispatch`. Do not
-  call `tmux` to learn a pane fact or to remove a pane. Stuck-worker inspect
-  is `muxa tail NAME` (one read; unknown name exits 2). Finished-worker pane
-  removal is `muxa kill NAME|ID`.
+  muxa dispatch or muxa spawn." Do not reimplement `muxa dispatch`. Never
+  call `tmux` directly — see [Two hard constraints](#two-hard-constraints).
+  Stuck-worker inspect is `muxa tail NAME` (one read; unknown name exits 2).
+  Finished-worker pane removal is `muxa kill NAME|ID`.
 
 | Concern | Owner |
 | --- | --- |
@@ -119,7 +119,7 @@ outcomes, teardown. Nothing else.
 - Classify incoming work (kind + delivery) and match it to a project
 - Clone the project into `projects/<name>` on demand and register it in `data/projects.md`
 - Record the job in br (in-flight work + job history), then dispatch via muxa-parent
-- Record worker, worktree, and branch in `bin/cp jobs` at dispatch (runtime-only ledger; cleared at teardown). Pane lives on dispatch stdout / `muxa who --json`. `state: dispatched` means queued, not received.
+- Record worker, worktree, and branch in `bin/cp jobs` at dispatch (runtime-only ledger; cleared at teardown). Pane lives on dispatch stdout / `muxa who --json`. [`state: dispatched` means queued](#first-brief), not received.
 - Pass the brief contract below to `muxa dispatch` — not muxa-parent's slim template, and not a later `muxa send`
 - Relay outcomes to the caller
 - Capture and curate memory under `data/` (see Memory)
@@ -132,9 +132,7 @@ outcomes, teardown. Nothing else.
 - Commit `data/`, `projects/`, or `.beads/`
 - Treat br as a mirror of GitHub Issues (or any other tracker)
 - Add MCP tools for muxa
-- Call `tmux` directly — if you need a pane fact, muxa must expose it
-  (`muxa who --json`, `muxa tail NAME`). Pane removal is `muxa kill NAME|ID`.
-  No exceptions.
+- Never call `tmux` directly — see [Two hard constraints](#two-hard-constraints).
 - Poll a worker, or restart one without being asked
 - Do the worker's job because "it's small enough to do here"
 
@@ -156,8 +154,8 @@ Evidence is not authorization. A research or scout result never starts an
 implementation by itself; a ship job needs its own authorization from the
 caller.
 
-When a scout should now build, **promote it**: same worker, same worktree, new
-brief. Do not dispatch a duplicate. See [Pre-dispatch](#pre-dispatch).
+When a scout should now build, promote — do not spawn a duplicate. See
+[Pre-dispatch](#pre-dispatch) (promote-not-spawn).
 
 ## Pre-dispatch
 
@@ -199,7 +197,7 @@ Do not reimplement `muxa dispatch`.
 5. **`bin/cp jobs` is runtime-only.** Record `worker=` + `worktree=` at dispatch
    (branch from the worktree if omitted). Keyed by br id. Do not pass `kind`,
    `delivery`, `pr`, `status`, or `note` — those live on the br issue. The
-   runtime row is occupancy, not receipt — `state: dispatched` is still queued.
+   runtime row is occupancy, not receipt — [`state: dispatched` means queued](#first-brief).
 6. **Dispatch aliases stay unique.** Parallel `muxa dispatch` can race and
    assign the same adjective-noun. Dispatch sequentially, or pass `--name`.
    Confirm dispatch JSON `cwd` equals the bound `$worktree`.
@@ -281,11 +279,12 @@ One worktree per worker.
 
    The checker fail-closes `projects/<name>`, checks the primary is on the
    default branch and each path is a linked worktree of **that** clone, and
-   treats a live occupant as promote-not-spawn. It does not dispatch or mail.
+   applies promote-not-spawn (see [Pre-dispatch](#pre-dispatch)). It does not
+   dispatch or mail.
 
 4. Dispatch into the leased worktree with one call (`muxa dispatch --cwd
    "$worktree" --brief-file … -- <cli>`). Confirm JSON `cwd` equals
-   `$worktree`. `state` is `"dispatched"`: queued, not received. Optional:
+   `$worktree`. [`state: dispatched` means queued](#first-brief). Optional:
    start workers from a fresh default-branch tip.
 5. Record the runtime mapping in `bin/cp jobs` (not the backlog). Keyed by
    br id. Do not pass `kind`, `delivery`, `pr`, `status`, or `note`. Pane is
@@ -309,8 +308,7 @@ positional string.
 
 `muxa dispatch` stdout is
 `{"name","id","pane","cwd","state":"dispatched","from","to"}`. Exit 0 and
-`state: dispatched` mean the pane exists and the brief is **queued**, not
-that the worker has received it. Do not treat that JSON as "briefed".
+`state: dispatched` mean the pane exists and the brief is queued, not received. Do not treat that JSON as "briefed".
 
 Cursor Agent can collapse a paste to a placeholder and scroll it away, so
 the broker's confirm-before-done may log a successful delivery as
@@ -386,17 +384,23 @@ collide. Independence is about jobs running at the same time, not concurrent
 - Never poll. Wake on `[muxa]` mail — including `[muxa] from=broker`.
 - Unknown or stuck worker state: inspect **once** with `muxa tail NAME`
   (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not
-  assume idle or busy, and do not loop. Do not call `tmux` from this repo.
+  assume idle or busy, and do not loop. Never call `tmux` directly — see
+  [Two hard constraints](#two-hard-constraints).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control
   (`muxa kill NAME|ID`) — never a chat message. `muxa unregister` only
-  clears identity and leaves the pane running. Do not call `tmux` from this
-  repo. Do not kill a worker that is still on a job.
+  clears identity and leaves the pane running. Do not kill a worker that is
+  still on a job.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
-- A queued message is pasted by the broker when the pane looks free; there is nothing to trigger manually. Do not scrape `muxa who`'s human table; use `muxa who --json`. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
-- Dispatch receipt is not that JSON: confirm the brief token with one
-  `muxa tail NAME`, or wait for worker mail / broker failure.
+- A queued message reaches an idle hook pane on its next turn; the broker
+  pastes when the pane looks free — there is nothing to trigger manually. Use
+  `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table
+  for UNREAD; use `muxa who --json`. If the send matters for a later failure
+  turn, `muxa send --json` returns `{"id","pane","from","to"}`.
+- Dispatch receipt is not that JSON — see [First brief](#first-brief): confirm
+  the brief token with one `muxa tail NAME`, or wait for worker mail / broker
+  failure.
 
 ### Delivery
 
@@ -415,8 +419,8 @@ pushed, then reports and stops. On that result, run the return yourself
 
 `muxa unregister` leaves the pane running. `muxa kill NAME|ID` removes it
 (same lookup as unregister; unknown name or id exits 2). Pane id still
-comes from `muxa who --json` if you need it; kill takes NAME or ID, so
-this repo does not call `tmux`.
+comes from `muxa who --json` if you need it; kill takes NAME or ID — never
+call `tmux` directly (see [Two hard constraints](#two-hard-constraints)).
 
 ```bash
 treehouse return --force <worktree>
