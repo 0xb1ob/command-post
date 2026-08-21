@@ -5,7 +5,9 @@ Use **muxa-parent** for spawn and mail. Name **muxa-worker** in the brief you
 send (workers may not have skills installed yet).
 
 This file is the coding-job playbook: classify, lease, preflight, brief,
-teardown. Job ledger is **br**. `muxa jobs` is a runtime map only.
+teardown. Job ledger is **br**. `muxa jobs` is a runtime map only. muxa is
+the transport; this repo is the work — see [muxa / command-post
+boundary](#muxa--command-post-boundary).
 
 ## Role check (do this first)
 
@@ -27,6 +29,70 @@ This repo is a **template plus local state**, not a source tree. Tracked files
 are the operating contract, install scaffold, and design reports. Registry, memory,
 project clones, and br issue state are machine-local (gitignored) and must
 never be committed.
+
+## muxa / command-post boundary
+
+Apply this before adding a command, wrapping one, or moving code across the
+two repos. Do not re-derive it. Paired muxa record:
+[0xb1ob/muxa#51](https://github.com/0xb1ob/muxa/issues/51). The two notes
+must agree.
+
+> **muxa owns the transport:** panes, identity, and getting a message into a
+> running agent.
+> **command-post owns the work:** what to do, where, by whom, and whether it
+> is done.
+
+**muxa** owns spawn, mail, and the pane/presence primitives: tiling, cwd,
+identity, roster, reachability, free-detection, paste, one-pane-one-message
+dispatch, who is drawing, one-shot pane read.
+
+**command-post** owns the job ledger (`br`), worktree leases (treehouse), git
+preflight, dispatch policy (promote-not-spawn, first brief, teardown), the
+worker ⟷ worktree ⟷ branch map, PR contracts, and memory.
+
+### Two tests that settle any future question
+
+1. **Does it need tmux?** If no, it is not muxa's.
+2. **Does it need to know what a "job" is?** If yes, it is not muxa's.
+
+### Two hard constraints, one per side
+
+- **muxa may never require `br`, `git`, or a job id.** If a command's
+  argument is a br key, it is in the wrong repo.
+- **command-post may never call `tmux` directly.** If it needs a pane fact,
+  muxa must expose it.
+
+### Which way a capability moves
+
+When the two overlap, the tests pick one owner. They do not share the
+capability.
+
+- **Into command-post** when it does not need tmux, or when it must know
+  what a job is. This file already records the jobs case, under
+  [Backlog (br)](#backlog-br): "`kind`/`delivery` on `muxa jobs add` exist
+  only because the CLI requires them; authoritative kind, delivery, status,
+  and PR URL live on the br issue." [`bin/cp`](bin/cp) already records the
+  preflight case: "do not duplicate muxa" while wrapping `muxa preflight`.
+- **Stays in muxa** when it is a pane or presence primitive; command-post
+  consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
+  is muxa spawn --cwd's warning; this checker reads muxa who and applies
+  command-post policy. It does not call muxa spawn." Do not reimplement
+  `muxa spawn`. Do not call `tmux` to learn a pane fact.
+
+| Concern | Owner |
+| --- | --- |
+| pane spawn, tiling, cwd | muxa |
+| identity, roster, reachability | muxa |
+| free-detection and paste | muxa |
+| dispatch — one pane, one message | muxa |
+| presence / who is drawing | muxa |
+| one-shot pane read for a stuck worker | muxa |
+| worktree leasing (treehouse) | command-post |
+| git preflight | command-post |
+| job ledger (br) | command-post |
+| worker ⟷ worktree ⟷ branch map | command-post |
+| promote-not-spawn occupancy policy | command-post |
+| PR contracts, teardown, memory | command-post |
 
 ## Session start
 
@@ -60,6 +126,7 @@ outcomes, teardown. Nothing else.
 - Commit `data/`, `projects/`, or `.beads/`
 - Treat br as a mirror of GitHub Issues (or any other tracker)
 - Add MCP tools for muxa
+- Call `tmux` directly — if you need a pane fact, muxa must expose it
 - Poll a worker, or restart one without being asked
 - Do the worker's job because "it's small enough to do here"
 
@@ -256,9 +323,12 @@ Independence is about jobs running at the same time, not concurrent
 ### While they run
 
 - Never poll. Wake on `[muxa]` mail.
-- Unknown or stuck worker state: inspect **once** with `tmux capture-pane -pt PANE`. Never assume idle or busy.
+- Unknown or stuck worker state: inspect **once** via muxa's one-shot pane
+  read. Do not call `tmux` from this repo. Never assume idle or busy.
 - Do not auto-restart a stuck worker. Report it.
-- `muxa send` is data only. Interrupt, kill, or restart is tmux control (`tmux kill-pane`, `muxa unregister`) — never a chat message.
+- `muxa send` is data only. Interrupt, kill, or restart is pane control
+  (`muxa unregister`) — never a chat message. Do not call `tmux` from this
+  repo.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
 - A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now, and check `muxa who` for UNREAD before concluding a worker is ignoring you.
