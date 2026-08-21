@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Behavioral tests for bin/cp check occupancy via muxa who --json.
-# Run from the command-post repo: test/occupancy.sh
+# Unit tests for bin/cp check occupancy via muxa who --json (stubbed; not a
+# live dispatch E2E). Occupancy is the JSON roster shape, never the human
+# table, and never who --json's exit status (pre-#49 printed the table with
+# exit 0). Run from the command-post repo: test/occupancy.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,11 +65,13 @@ EOF
 expect_rc_msg 0 "clear: no other live registered worker" "empty who --json is clear" \
   "$CP" check --project demo "$WT"
 
-# live occupant → promote-not-spawn
+# live occupant → promote-not-spawn; remedy names muxa send X
 set_who <<EOF
 [{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$WT","status":"live"}]
 EOF
 expect_rc_msg 1 "promote-not-spawn: live worker swift-oak occupies" "live occupant is promote-not-spawn" \
+  "$CP" check --project demo "$WT"
+expect_rc_msg 1 "muxa send swift-oak" "promote remedy names muxa send X" \
   "$CP" check --project demo "$WT"
 expect_rc_msg 1 "do not muxa dispatch" "live occupant forbids a second dispatch" \
   "$CP" check --project demo "$WT"
@@ -95,12 +99,12 @@ EOF
 expect_rc_msg 0 "clear: no other live registered worker" "live worker on another cwd is clear" \
   "$CP" check --project demo "$WT"
 
-# human table is not JSON — fail closed (do not scrape columns)
+# human table with exit 0 is not occupancy-clear (pre-#49 who --json)
 set_who <<'EOF'
 NAME             ID     STATUS   CWD
 swift-oak        abc    live     /tmp/wt
 EOF
-expect_rc_msg 2 "not JSON" "human who table is rejected" \
+expect_rc_msg 2 "not JSON" "human who table with exit 0 is rejected (shape, not status)" \
   "$CP" check --project demo "$WT"
 
 # object instead of array
@@ -108,6 +112,32 @@ set_who <<'EOF'
 {"name":"swift-oak","status":"live","cwd":"/tmp"}
 EOF
 expect_rc_msg 2 "expected an array" "who --json object (not array) is rejected" \
+  "$CP" check --project demo "$WT"
+
+# array of non-objects
+set_who <<'EOF'
+["swift-oak", "live"]
+EOF
+expect_rc_msg 2 "expected objects" "who --json array of non-objects is rejected" \
+  "$CP" check --project demo "$WT"
+
+# occupancy keys name/status/cwd; extra fields are ignored (JSON shape, not table)
+set_who <<EOF
+[{"name":"lean-jay","status":"live","cwd":"$WT","extra":true}]
+EOF
+expect_rc_msg 1 "promote-not-spawn: live worker lean-jay occupies" "minimal JSON shape is enough to occupy" \
+  "$CP" check --project demo "$WT"
+
+# stub that exits 0 after printing the human table (explicit status-vs-shape)
+cat > "$TMP/who-table.sh" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'NAME  ID  STATUS  CWD' 'swift-oak  abc  live  /tmp/wt'
+exit 0
+EOF
+chmod +x "$TMP/who-table.sh"
+MUXA_WHO_CMD="$TMP/who-table.sh"
+export MUXA_WHO_CMD
+expect_rc_msg 2 "not JSON" "who stub exit 0 + human table still fail-closes on shape" \
   "$CP" check --project demo "$WT"
 
 if [[ "$failed" -ne 0 ]]; then
