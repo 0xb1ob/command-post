@@ -51,21 +51,22 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`bin/cp check --project <name> <worktree>`; no spawn/mail) |
+| `bin/cp` | yes | Dispatch precheck (`check`) and runtime jobs map (`jobs`) |
 | `reports/` | yes | Design research for this repo |
 | `skills/` | yes | Canonical agent skills (`cp-memory`) |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
+| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`); row gone at teardown |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
 | `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` | **no** | Harness copies of `skills/` from `bin/install.sh` |
 
-Do not commit `data/`, `projects/`, `.beads/`, or harness skill copies.
+Do not commit `data/`, `state/`, `projects/`, `.beads/`, or harness skill copies.
 
 ## What the agent uses
 
 - **GitHub Issues** — the real product backlog, when the caller points at one
 - **`br`** — current jobs in this command post, and closed issues as job history
-- **`muxa jobs`** — runtime-only (worker / worktree); gone at teardown
+- **`bin/cp jobs`** — runtime-only (worker / worktree / branch, keyed by br id); gone at teardown
 - **`data/learnings.md`** — budgeted cross-repo memory (see `AGENTS.md`)
 
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.

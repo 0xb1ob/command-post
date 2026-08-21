@@ -4,6 +4,8 @@ Date: 2026-08-19
 Scope: evaluate [beads_rust](https://github.com/Dicklesworthstone/beads_rust) as a replacement for `backlog.md` in command-post.
 Sources: project README and AGENTS.md (upstream), the `br` CLI itself (v0.2.19, already installed at `/opt/homebrew/bin/br` on this machine), and the current `muxa jobs` state on disk.
 
+Supersession (2026-08-21, [#13](https://github.com/0xb1ob/command-post/issues/13)): the runtime worker/worktree/branch map now lives in `bin/cp jobs`. The `kind=`/`delivery=` passthrough described below was muxa's CLI requirement and is gone; those fields stay on the br issue.
+
 ---
 
 ## 1. What br / beads_rust is
@@ -195,8 +197,8 @@ Then follow the contract in `AGENTS.md`:
    `project:<name>` from that registry plus `delivery:pr|local|pipeline`.
 2. Track jobs with `br` (`br ready`, `br create`, `br close`, … — all with
    `--json` when parsing output). Do not commit or push `.beads/`.
-3. At spawn, record worker + worktree in `muxa jobs` only (runtime ledger;
-   no `note=<br-id>`). Put the PR URL on `br close`, not on `muxa jobs done`.
+3. At spawn, record worker + worktree in `bin/cp jobs` only (runtime ledger;
+   keyed by br id). Put the PR URL on `br close`, not on `bin/cp jobs done`.
 
 ### Orchestrator loop after adoption
 
@@ -205,10 +207,10 @@ Then follow the contract in `AGENTS.md`:
 br create "Fix cluster reads" -t task -p 1 -l project:ssv-ops-dashboard,delivery:pr,kind:ship --slug cluster-reads --json
 # dispatch (id from create output)
 br update cp-cluster-reads-ab12 --status in_progress --assignee lively-comet --json
-muxa jobs add cluster-reads kind=ship delivery=pr worker=lively-comet worktree=<path>
+bin/cp jobs add cp-cluster-reads-ab12 worker=lively-comet worktree=<path>
 # completion
 br close cp-cluster-reads-ab12 --reason "PR: https://github.com/…/pull/22" --json
-muxa jobs done cluster-reads
+bin/cp jobs done cp-cluster-reads-ab12
 # teardown (parent, from outside the worktree)
 treehouse return --force <worktree>
 ```
