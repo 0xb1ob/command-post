@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent command-post setup. No arguments.
-# Phase 1 (deps): muxa, br (beads), treehouse — skip if already on PATH.
+# Phase 1 (deps): muxa (+ the muxa-broker binary its installer ships), br
+# (beads), treehouse — skip if already on PATH. Nothing here compiles.
 # Phase 2 (scaffold): data/, projects/, data/*.md templates, br init --prefix cp,
 # copy tracked skills/ into gitignored agent-harness skill dirs.
 # Run once after clone; safe to re-run (muxa refreshes skills/hooks; skill copies refresh).
@@ -33,14 +34,16 @@ ensure_bin_dir() {
 
 require_prereqs() {
   local missing=0
-  for cmd in git curl tmux; do
+  # python3: muxa's installer merges agent hooks with it, and we use it to
+  # resolve the realpath of bin/muxa when locating muxa-broker.
+  for cmd in git curl tmux python3; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       warn "$cmd is required but not found"
       missing=1
     fi
   done
   if [[ "$missing" -ne 0 ]]; then
-    die "install git, curl, and tmux first (muxa needs tmux; all three are used below)"
+    die "install git, curl, tmux, and python3 first (muxa needs tmux and python3; all are used below)"
   fi
 }
 
@@ -51,11 +54,49 @@ install_muxa() {
     log "muxa: installing from $MUXA_INSTALL_URL"
   fi
 
-  if curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" bash; then
+  # cwd matters. muxa is a Go project, and any go command in its installer
+  # resolves its module from the *caller's* cwd. Run from command-post and go
+  # walks up to this repo's .git: "cannot find main module, but found
+  # .git/config in <command-post>". So run the installer from a scratch dir
+  # with no repo and no go.mod above it. command-post compiles nothing, never
+  # invokes go, and must not gain a go.mod — muxa ships its own broker binary.
+  local scratch rc=0
+  scratch="$(mktemp -d)"
+  (cd "$scratch" && curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" bash) || rc=$?
+  rmdir "$scratch" 2>/dev/null || true
+  if [[ "$rc" -eq 0 ]]; then
+    check_muxa_broker
     return 0
   fi
 
   die "muxa install failed (could not fetch or run $MUXA_INSTALL_URL). Check network, or set MUXA_INSTALL_URL."
+}
+
+# muxa >=0.3 `muxa send` needs muxa-broker next to the realpath of bin/muxa;
+# without it sends degrade to paste-fallback. Installing it is muxa's job, so
+# only report here — never build.
+check_muxa_broker() {
+  local muxa_bin real bin_dir broker
+  # Prefer the symlink this install just wrote; only then whatever PATH has,
+  # so a stale muxa elsewhere on PATH is not the one we check.
+  if [[ -e "$BIN/muxa" ]]; then
+    muxa_bin="$BIN/muxa"
+  else
+    muxa_bin="$(command -v muxa || true)"
+  fi
+  [[ -n "$muxa_bin" && -e "$muxa_bin" ]] || { warn "muxa-broker: no muxa at $BIN/muxa or on PATH"; return 0; }
+
+  real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$muxa_bin")"
+  bin_dir="$(dirname "$real")"
+  broker="$bin_dir/muxa-broker"
+
+  if [[ -x "$broker" ]]; then
+    ln -sfn "$broker" "$BIN/muxa-broker"
+    log "muxa-broker: $broker"
+    return 0
+  fi
+
+  warn "muxa-broker: missing next to $real — muxa send will paste-fallback. Update muxa (its installer ships the broker binary); do not build it here."
 }
 
 install_br() {
