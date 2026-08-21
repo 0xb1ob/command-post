@@ -388,9 +388,8 @@ collide. Independence is about jobs running at the same time, not concurrent
   [Two hard constraints](#two-hard-constraints).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control
-  (`muxa kill NAME|ID`) — never a chat message. `muxa unregister` only
-  clears identity and leaves the pane running. Do not kill a worker that is
-  still on a job.
+  (`muxa kill NAME|ID`) — never a chat message. Do not kill a worker that
+  is still on a job.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
 - A queued message reaches an idle hook pane on its next turn; the broker
@@ -417,10 +416,10 @@ The worker only verifies `git status --porcelain` is empty and the branch is
 pushed, then reports and stops. On that result, run the return yourself
 **from outside the worktree**. Then remove the finished worker's pane.
 
-`muxa unregister` leaves the pane running. `muxa kill NAME|ID` removes it
-(same lookup as unregister; unknown name or id exits 2). Pane id still
-comes from `muxa who --json` if you need it; kill takes NAME or ID — never
-call `tmux` directly (see [Two hard constraints](#two-hard-constraints)).
+`muxa kill NAME|ID` removes it (exact name first, then 12-hex id; unknown
+targets exit 2). Pane id still comes from `muxa who --json` if you need it;
+kill takes NAME or ID — never call `tmux` directly (see
+[Two hard constraints](#two-hard-constraints)).
 
 ```bash
 treehouse return --force <worktree>
