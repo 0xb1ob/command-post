@@ -624,9 +624,10 @@ Tracked (the template):
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `bin/cp` — dispatch precheck (`check`) and runtime jobs map (`jobs`)
-- `test/jobs.sh` — behavioral tests for `bin/cp jobs`
-- `test/occupancy.sh` — behavioral tests for occupancy via `muxa who --json`
-- `test/playbook.sh` — fail-closed playbook checks for `muxa dispatch` adoption
+- `test/jobs.sh` — unit tests for `bin/cp jobs`
+- `test/occupancy.sh` — unit tests for occupancy via `muxa who --json`
+- `test/check.sh` — unit tests for `bin/cp check` clone/worktree preflight
+- `test/playbook.sh` — playbook contract checks for `muxa dispatch` adoption
 - `reports/` — design research for this repo
 - `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 

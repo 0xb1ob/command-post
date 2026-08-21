@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Behavioral tests for bin/cp jobs. Run from the command-post repo:
-#   test/jobs.sh
+# Unit tests for bin/cp jobs (runtime map only; not a live dispatch E2E).
+# Run from the command-post repo: test/jobs.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
