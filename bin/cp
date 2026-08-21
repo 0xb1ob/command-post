@@ -7,18 +7,21 @@
 #
 # Exit:
 #   0  all checks passed
-#   1  check failed (wrong clone, muxa preflight, or promote-not-spawn)
+#   1  check failed (wrong clone, git preflight, or promote-not-spawn)
 #   2  usage / missing tools
 #
 # Checks:
 #   1. Canonical clone is <command-post-home>/projects/<name> — not ~/name,
 #      not a nested directory of another git, not a worktree of another clone.
-#   2. Each WORKTREE is a linked worktree of that clone (muxa preflight;
-#      do not duplicate muxa). muxa preflight is run with cwd = the clone.
+#   2. Git preflight (no tmux, no muxa): the clone's primary checkout sits on
+#      the base branch (--base, else origin/HEAD, else main), and each
+#      WORKTREE is a linked worktree of that clone's .git. Relative WORKTREE
+#      paths resolve against the clone, not this process cwd. The distinctive
+#      wrong-clone line is "belongs to another repo".
 #   3. If muxa who shows a live registered worker occupying a target worktree
 #      cwd, fail with promote-not-spawn. Occupancy is muxa spawn --cwd's
 #      warning; this checker reads muxa who and applies command-post policy.
-#      It does not call muxa spawn.
+#      It does not call muxa spawn. It does not call tmux.
 #
 # Command-post home is this script's repo root, or CP_HOME if set.
 # Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI.
@@ -111,24 +114,88 @@ assert_canonical_clone() {
   printf '%s\n' "$clone_abs"
 }
 
-run_muxa_preflight() {
+default_base_branch() {
+  local repo="$1" ref
+  ref="$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  case "$ref" in
+    origin/*) printf '%s' "${ref#origin/}" ;;
+    *) printf 'main' ;;
+  esac
+}
+
+# git lists the main worktree first.
+primary_worktree() {
+  git -C "$1" worktree list --porcelain 2>/dev/null \
+    | awk '/^worktree /{ sub(/^worktree /, ""); print; exit }'
+}
+
+# Git assertions that used to live in muxa preflight. Key off the canonical
+# clone (not command-post cwd) so worktrees resolve against projects/<name>/.git.
+check_git_preflight() {
   local clone="$1"
   shift
-  local -a args=()
-  [[ -n "${BASE:-}" ]] && args+=(--base "$BASE")
-  args+=("$@")
+  local base="${BASE:-}" common primary branch arg raw wt wt_common fail=0
 
-  if ! command -v muxa >/dev/null 2>&1; then
-    printf '[cp] error: muxa not on PATH (needed for preflight)\n' >&2
-    exit 2
-  fi
-
-  # muxa preflight keys off the git repo of cwd. Run it from the canonical
-  # clone so worktrees are checked against projects/<name>/.git.
-  if ! (cd "$clone" && muxa preflight "${args[@]}"); then
-    printf '[cp] muxa preflight failed for clone %s\n' "$clone" >&2
+  common="$(abs_git_common "$clone")" || {
+    printf '[cp] fail: repo %s has no resolvable git dir\n' "$clone" >&2
     return 1
+  }
+
+  [[ -n "$base" ]] || base="$(default_base_branch "$clone")"
+  log "base branch $base"
+
+  primary="$(primary_worktree "$clone")"
+  if [[ -z "$primary" ]]; then
+    printf '[cp] fail: primary checkout: git worktree list returned nothing\n' >&2
+    fail=1
+    primary=""
+  elif [[ ! -d "$primary" ]]; then
+    printf '[cp] fail: primary %s does not exist\n' "$primary" >&2
+    fail=1
+    primary=""
+  else
+    primary="$(cd "$primary" && pwd -P)"
+    branch="$(git -C "$primary" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    if [[ -z "$branch" ]]; then
+      printf '[cp] fail: primary %s is detached (want %s)\n' "$primary" "$base" >&2
+      fail=1
+    elif [[ "$branch" == "$base" ]]; then
+      log "primary $primary on $base"
+    else
+      printf '[cp] fail: primary %s on %s (want %s)\n' "$primary" "$branch" "$base" >&2
+      fail=1
+    fi
   fi
+
+  for arg in "$@"; do
+    if [[ "$arg" == /* ]]; then
+      raw="$arg"
+    else
+      raw="$clone/$arg"
+    fi
+    if [[ ! -d "$raw" ]]; then
+      printf '[cp] fail: worktree %s does not exist\n' "$arg" >&2
+      fail=1
+      continue
+    fi
+    wt="$(cd "$raw" && pwd -P)"
+    wt_common="$(abs_git_common "$wt" || true)"
+    if [[ -z "$wt_common" ]]; then
+      printf '[cp] fail: worktree %s is not a git worktree\n' "$wt" >&2
+      fail=1
+    elif [[ "$wt_common" != "$common" ]]; then
+      printf '[cp] fail: worktree %s belongs to another repo (%s)\n' "$wt" "$wt_common" >&2
+      fail=1
+    elif [[ -n "$primary" && "$wt" == "$primary" ]]; then
+      printf '[cp] fail: worktree %s is the primary checkout, not a linked worktree\n' "$wt" >&2
+      fail=1
+    else
+      branch="$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
+      log "worktree $wt linked on $branch"
+    fi
+  done
+
+  [[ "$fail" -eq 0 ]]
 }
 
 # muxa who is a space-padded table. PARENT may be empty, so parse from the
@@ -247,15 +314,15 @@ cmd_check() {
   [[ -n "$project" ]] || die_usage "missing --project NAME"
   [[ ${#worktrees[@]} -gt 0 ]] || die_usage "missing WORKTREE"
 
-  require_muxa
-
   local clone rc=0
   clone="$(assert_canonical_clone "$project")" || exit $?
   log "clone $clone"
 
-  if ! run_muxa_preflight "$clone" "${worktrees[@]}"; then
+  if ! check_git_preflight "$clone" "${worktrees[@]}"; then
     rc=1
   fi
+
+  require_muxa
   if ! check_occupancy "${worktrees[@]}"; then
     rc=1
   fi

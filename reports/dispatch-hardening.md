@@ -8,8 +8,8 @@ Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
 not repeated. Promotion and treehouse lease recovery stay in command-post.
 Occupied-cwd warning belongs in `muxa spawn --cwd`. `bin/cp check` fail-closes
-that policy (reads `muxa who`, promote-not-spawn) plus clone/worktree facts via
-`muxa preflight`. Do not reimplement `muxa spawn`.
+that policy (reads `muxa who`, promote-not-spawn) plus clone/worktree facts.
+Do not reimplement `muxa spawn`.
 
 ## 1. Duplicate spawn instead of promotion
 

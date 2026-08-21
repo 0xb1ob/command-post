@@ -71,8 +71,8 @@ capability.
   what a job is. This file already records the jobs case, under
   [Backlog (br)](#backlog-br): "`kind`/`delivery` on `muxa jobs add` exist
   only because the CLI requires them; authoritative kind, delivery, status,
-  and PR URL live on the br issue." [`bin/cp`](bin/cp) already records the
-  preflight case: "do not duplicate muxa" while wrapping `muxa preflight`.
+  and PR URL live on the br issue." Git preflight lives in `bin/cp check`
+  (it does not need tmux; occupancy still reads `muxa who`).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa spawn --cwd's warning; this checker reads muxa who and applies
@@ -181,10 +181,10 @@ send mail, or write `muxa jobs`. Do not reimplement `muxa spawn`.
    ```
 
    This verifies `projects/<name>` (not `~/name`, not a nested wrong git),
-   reuses `muxa preflight` so each worktree's git-common-dir is that clone's
-   `.git`, and exits non-zero with promote-not-spawn when a live worker
-   occupies the cwd. If it reports **belongs to another repo** (via muxa
-   preflight), recover (below). Do not `git worktree add`.
+   checks each worktree's git-common-dir is that clone's `.git` (primary
+   checkout on the base branch), and exits non-zero with promote-not-spawn
+   when a live worker occupies the cwd. If it reports **belongs to another
+   repo**, recover (below). Do not `git worktree add`.
 5. **`muxa jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn.
    Do not set `pr`, `status`, or `note=<br-id>`. Kind, delivery, status, and
    PR URL live on the br issue.
@@ -212,7 +212,7 @@ brief. Research evidence is not authorization to spawn a second pane.
 
 `treehouse get --lease` keys off the git repo of the cwd you run it from. A
 leftover clone (e.g. `~/command-post`) yields a worktree linked to that
-`.git`, not `projects/<name>/.git`. `muxa preflight` then fails: the path
+`.git`, not `projects/<name>/.git`. `bin/cp check` then fails: the path
 **belongs to another repo**.
 
 **Do not** recover by `git worktree add` under `projects/.worktrees/` (or
@@ -266,8 +266,8 @@ One worktree per worker.
    bin/cp check --project <name> [--base BRANCH] WORKTREE...
    ```
 
-   The checker fail-closes `projects/<name>`, reuses `muxa preflight` (primary
-   on the default branch; each path a linked worktree of **that** clone), and
+   The checker fail-closes `projects/<name>`, checks the primary is on the
+   default branch and each path is a linked worktree of **that** clone, and
    treats a live occupant as promote-not-spawn. It does not spawn or mail.
 
 4. Spawn into the leased worktree (`muxa spawn --cwd <worktree>`, or `cd` then

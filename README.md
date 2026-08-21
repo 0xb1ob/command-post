@@ -73,7 +73,7 @@ Do not commit `data/`, `projects/`, `.beads/`, or harness skill copies.
 Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Spawn and mail
 use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`. Before
 `muxa spawn`, run `bin/cp check --project <name> <worktree>` (canonical clone,
-`muxa preflight`, promote-not-spawn occupancy). Idle worker on a held
+git preflight, promote-not-spawn occupancy). Idle worker on a held
 worktree → `muxa send` (promote). `muxa spawn --cwd` warns if that cwd is
 already occupied; do not spawn a duplicate. Lease only from `projects/<name>`;
 see [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
