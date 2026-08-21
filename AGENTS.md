@@ -333,7 +333,7 @@ Use the muxa-worker skill.
 You are a muxa worker. Parent: ${parent}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
 
 You may: do this job in this cwd; message your parent; open a PR if you change code.
-You may not: cd or prefix commands with cd <path> (spawn already set cwd); message siblings or other roots; spawn extra workers; poll muxa peek; ack or narrate; pass CLI trust/yolo/workspace flags.
+You may not: cd or prefix commands with cd <path> (spawn already set cwd); message siblings or other roots; spawn extra workers; poll for mail — incoming mail arrives as a user turn; ack or narrate; pass CLI trust/yolo/workspace flags.
 
 When done: open a PR if there are code changes (skip if research-only). Never run treehouse return — teardown is mine, from outside the worktree. Verify fail-closed that git status --porcelain is empty AND the branch is pushed, then muxa send ${parent} the result (include the PR URL) and stop. Dirty or unpushed: keep the lease and report a blocker with the path. Never ack. Then stop.
 
@@ -394,7 +394,7 @@ collide. Independence is about jobs running at the same time, not concurrent
   repo. Do not kill a worker that is still on a job.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
-- A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table for UNREAD. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
+- A queued message is pasted by the broker when the pane looks free; there is nothing to trigger manually. Do not scrape `muxa who`'s human table; use `muxa who --json`. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
 - Dispatch receipt is not that JSON: confirm the brief token with one
   `muxa tail NAME`, or wait for worker mail / broker failure.
 
