@@ -72,12 +72,13 @@ capability.
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
   is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy still reads `muxa who`).
+  occupancy reads `muxa who --json`).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
-  is muxa spawn --cwd's warning; this checker reads muxa who and applies
-  command-post policy. It does not call muxa spawn." Do not reimplement
-  `muxa spawn`. Do not call `tmux` to learn a pane fact.
+  is muxa spawn --cwd's warning; this checker reads muxa who --json and
+  applies command-post policy. It does not call muxa spawn." Do not
+  reimplement `muxa spawn`. Do not call `tmux` to learn a pane fact.
+  Stuck-worker inspect is `muxa tail NAME` (one read; unknown name exits 2).
 
 | Concern | Owner |
 | --- | --- |
@@ -113,7 +114,7 @@ outcomes, teardown. Nothing else.
 - Classify incoming work (kind + delivery) and match it to a project
 - Clone the project into `projects/<name>` on demand and register it in `data/projects.md`
 - Record the job in br (in-flight work + job history), then spawn via muxa-parent
-- Record worker, worktree, and branch in `bin/cp jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who`.
+- Record worker, worktree, and branch in `bin/cp jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who --json`.
 - Brief with the contract below — not muxa-parent's slim first-brief template
 - Relay outcomes to the caller
 - Capture and curate memory under `data/` (see Memory)
@@ -165,7 +166,7 @@ send mail, or write `bin/cp jobs`. Do not reimplement `muxa spawn`.
    on that path, **promote** it with `muxa send` — do not spawn a duplicate.
    `muxa spawn --cwd` warns when that path is occupied; treat the warning as
    promote-not-spawn. `bin/cp check` fail-closes the same policy from
-   `muxa who`.
+   `muxa who --json`.
 2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
    in `data/projects.md`). One clone path per project. Extra checkouts
    (`~/command-post`, …) are not lease sources.
@@ -276,7 +277,7 @@ One worktree per worker.
    Optional: start workers from a fresh default-branch tip.
 5. Record the runtime mapping in `bin/cp jobs` (not the backlog). Keyed by
    br id. Do not pass `kind`, `delivery`, `pr`, `status`, or `note`. Pane is
-   on spawn stdout / `muxa who`, not a jobs-map key.
+   on spawn stdout / `muxa who --json`, not a jobs-map key.
 
    ```bash
    bin/cp jobs add <br-id> worker=<alias> worktree=<path>
@@ -289,12 +290,13 @@ not pass trust, yolo, skip-permissions, approval-mode, hook paths, or
 ### First brief
 
 This contract **wins** over muxa-parent's slim first-brief template (that one
-omits lease/PR). Send the template below **verbatim**. Fill only the alias and
-the task — change nothing else.
+omits lease/PR). The wrapper is `muxa send --json` so stdout is
+`{"id","pane","from","to"}` for a later broker-failure correlation. The
+message body below is **verbatim** — fill only the alias and the task.
 
 ```bash
 parent="$(muxa whoami)"
-muxa send <alias> "$(cat <<EOF
+muxa send --json <alias> "$(cat <<EOF
 Use the muxa-worker skill.
 
 You are a muxa worker. Parent: ${parent}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
@@ -322,15 +324,16 @@ Independence is about jobs running at the same time, not concurrent
 ### While they run
 
 - Never poll. Wake on `[muxa]` mail.
-- Unknown or stuck worker state: inspect **once** via muxa's one-shot pane
-  read. Do not call `tmux` from this repo. Never assume idle or busy.
+- Unknown or stuck worker state: inspect **once** with `muxa tail NAME`
+  (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not
+  assume idle or busy, and do not loop. Do not call `tmux` from this repo.
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control
   (`muxa unregister`) — never a chat message. Do not call `tmux` from this
   repo.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
-- A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now, and check `muxa who` for UNREAD before concluding a worker is ignoring you.
+- A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table for UNREAD. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
 
 ### Delivery
 
@@ -549,6 +552,7 @@ Tracked (the template):
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
 - `bin/cp` — dispatch precheck (`check`) and runtime jobs map (`jobs`)
 - `test/jobs.sh` — behavioral tests for `bin/cp jobs`
+- `test/occupancy.sh` — behavioral tests for occupancy via `muxa who --json`
 - `reports/` — design research for this repo
 - `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 

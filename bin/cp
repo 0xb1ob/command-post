@@ -21,20 +21,17 @@
 #      WORKTREE is a linked worktree of that clone's .git. Relative WORKTREE
 #      paths resolve against the clone, not this process cwd. The distinctive
 #      wrong-clone line is "belongs to another repo".
-#   3. If muxa who shows a live registered worker occupying a target worktree
-#      cwd, fail with promote-not-spawn. Occupancy is muxa spawn --cwd's
-#      warning; this checker reads muxa who and applies command-post policy.
-#      It does not call muxa spawn. It does not call tmux.
+#   3. If muxa who --json shows a live registered worker occupying a target
+#      worktree cwd, fail with promote-not-spawn. Occupancy is muxa spawn
+#      --cwd's warning; this checker reads muxa who --json and applies
+#      command-post policy. It does not call muxa spawn. It does not call
+#      tmux. Do not parse the human who table.
 #
 # jobs: runtime worker ⟷ worktree ⟷ branch map, keyed by br issue id.
 # Durable kind / delivery / status / PR URL live on the br issue — this
 # command rejects those fields (they existed on muxa jobs only because
 # that CLI required them). State: $CP_HOME/state/jobs.tsv (gitignored).
-# Does not call tmux; pane facts stay on muxa who / spawn stdout.
-#
-# Command-post home is this script's repo root, or CP_HOME if set.
-# Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
-# BR_SHOW_CMD, CP_JOBS_FILE.
+# Does not call tmux; pane facts stay on muxa who --json / spawn stdout.
 #
 # Command-post home is this script's repo root, or CP_HOME if set.
 # Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
@@ -226,8 +223,39 @@ check_git_preflight() {
   [[ "$fail" -eq 0 ]]
 }
 
-# muxa who is a space-padded table. PARENT may be empty, so parse from the
-# right: CWD is last, STATUS is 6th-from-last (live|ghost). NAME is first.
+# Occupancy from muxa who --json (array of {name,id,parent,kind,state,pane,
+# session,cwd,status}; parent/session may be null). The human who table is
+# a UI and will drift — do not scrape it.
+who_json_rows() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for muxa who --json)\n' >&2
+    exit 2
+  fi
+  python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    rows = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: muxa who --json: not JSON (need muxa who --json; do not scrape the human table)\n")
+    sys.exit(2)
+if not isinstance(rows, list):
+    sys.stderr.write("[cp] error: muxa who --json: expected an array\n")
+    sys.exit(2)
+for r in rows:
+    if not isinstance(r, dict):
+        sys.stderr.write("[cp] error: muxa who --json: expected objects\n")
+        sys.exit(2)
+    name = r.get("name") if r.get("name") is not None else ""
+    status = r.get("status") if r.get("status") is not None else ""
+    cwd = r.get("cwd") if r.get("cwd") is not None else ""
+    if "\t" in str(name) or "\n" in str(name) or "\t" in str(status) or "\n" in str(status) or "\t" in str(cwd) or "\n" in str(cwd):
+        sys.stderr.write("[cp] error: muxa who --json: field contains a tab or newline\n")
+        sys.exit(2)
+    sys.stdout.write("%s\t%s\t%s\n" % (name, status, cwd))
+'
+}
+
 check_occupancy() {
   local -a targets=()
   local t line name status cwd resolved self collisions ghost_hits
@@ -243,7 +271,7 @@ check_occupancy() {
     # shellcheck disable=SC2206
     who_cmd=($MUXA_WHO_CMD)
   else
-    who_cmd=(muxa who)
+    who_cmd=(muxa who --json)
   fi
 
   self="${MUXA_WHOAMI:-}"
@@ -251,23 +279,19 @@ check_occupancy() {
     self="$(muxa whoami 2>/dev/null || true)"
   fi
 
-  local who_out
+  local who_out parsed
   if ! who_out="$("${who_cmd[@]}")"; then
-    printf '[cp] error: muxa who failed\n' >&2
+    printf '[cp] error: muxa who --json failed\n' >&2
+    exit 2
+  fi
+  if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
     exit 2
   fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -n "$line" ]] || continue
-    [[ "$line" == NAME* ]] && continue
-
-    local -a fields=()
-    read -r -a fields <<< "$line"
-    ((${#fields[@]} >= 7)) || continue
-
-    name="${fields[0]}"
-    cwd="${fields[${#fields[@]} - 1]}"
-    status="${fields[${#fields[@]} - 6]}"
+    IFS=$'\t' read -r name status cwd _ <<< "$line"
+    [[ -n "$cwd" ]] || continue
     resolved="$(normalize_path "$cwd")"
 
     [[ -n "$self" && "$name" == "$self" ]] && continue
@@ -296,7 +320,7 @@ check_occupancy() {
         collisions=$((collisions + 1))
         ;;
     esac
-  done <<< "$who_out"
+  done <<< "$parsed"
 
   if [[ "$collisions" -gt 0 || "$ghost_hits" -gt 0 ]]; then
     return 1
