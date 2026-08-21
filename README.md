@@ -24,7 +24,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 
 **Phase 1 — deps**
 
-1. Checks prerequisites: `git`, `curl`, `tmux`, `python3` (muxa requires tmux and python3)
+1. Checks prerequisites: `git`, `curl`, `tmux` (muxa requires tmux)
 2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes skills/hooks on re-run), then checks that `muxa-broker` sits next to it — without the broker, `muxa send` falls back to pasting and `muxa dispatch` cannot enqueue. muxa's installer provides that binary; command-post never compiles it. The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
 3. Installs [`br`](https://github.com/Dicklesworthstone/beads_rust) (beads) with `--skip-skills`
 4. Installs [`treehouse`](https://github.com/kunchenguid/treehouse) for worktree leasing
