@@ -8,8 +8,8 @@ Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
 not repeated. Promotion and treehouse lease recovery stay in command-post.
 Occupied-cwd warning belongs in `muxa spawn --cwd`. `bin/cp check` fail-closes
-that policy (reads `muxa who`, promote-not-spawn) plus clone/worktree facts.
-Do not reimplement `muxa spawn`.
+that policy (reads `muxa who --json`, promote-not-spawn) plus clone/worktree
+facts. Do not reimplement `muxa spawn`.
 
 ## 1. Duplicate spawn instead of promotion
 
@@ -32,8 +32,8 @@ worktree returned, or job is independent (other repo / second worktree)
   → muxa spawn --cwd <worktree>
 ```
 
-Before spawn: `bin/cp check --project <name> <worktree>` (and `muxa who` CWD
-column). `muxa spawn --cwd` warns if a registered worker already occupies
+Before spawn: `bin/cp check --project <name> <worktree>` (and `muxa who --json`
+`cwd`). `muxa spawn --cwd` warns if a registered worker already occupies
 that path — promote with `muxa send`, do not spawn a second pane. Ghost
 panes: `muxa unregister`, do not promote.
 
@@ -67,7 +67,7 @@ preflight is not "treehouse unavailable."
 - Before `muxa spawn`, run `bin/cp check --project <name> <worktree>`.
   Promote with `muxa send` instead of duplicate spawn. Occupied cwd is
   muxa's warning on `muxa spawn --cwd`; the checker applies promote-not-spawn
-  from `muxa who` and does not reimplement spawn.
+  from `muxa who --json` and does not reimplement spawn.
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.
