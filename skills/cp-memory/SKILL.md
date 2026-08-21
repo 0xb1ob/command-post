@@ -85,7 +85,7 @@ Do not capture:
 
 - Job outcomes, PR URLs, or chronology — those belong in br
 - Project-intrinsic facts ("repo X's tests need flag Y") — those go to that
-  repo's `AGENTS.md` via a worker PR (report the need; do not spawn unasked)
+  repo's `AGENTS.md` via a worker PR (report the need; do not dispatch unasked)
 - Preferences that belong in `captain.md`
 
 Do not rewrite or delete candidate lines. Do not touch `data/learnings.md`
@@ -188,6 +188,6 @@ that still needs a worker PR. Do not paste file dumps.
 - Blind-append to `data/learnings.md` or rewrite `data/candidates.md`
 - Delete entries; archive instead
 - Commit `data/`, `projects/`, or `.beads/`
-- Edit a target repo's `AGENTS.md` from this pane — spawn a worker
+- Edit a target repo's `AGENTS.md` from this pane — dispatch a worker
 - Run capture/curation because a scout result "seems useful"; promotion still
   needs a curation pass

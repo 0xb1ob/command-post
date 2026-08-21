@@ -4,12 +4,17 @@ Date: 2026-08-19
 Issue: [command-post#6](https://github.com/0xb1ob/command-post/issues/6)
 Contract: [AGENTS.md](../AGENTS.md) Pre-dispatch
 
+Supersession (2026-08-21, [#15](https://github.com/0xb1ob/command-post/issues/15)):
+the spawn-then-brief sequence is `muxa dispatch`. Occupied-cwd warning is
+`muxa dispatch --cwd` (same as `muxa spawn --cwd`). Do not reimplement
+dispatch. Exit 0 / `state: dispatched` means queued, not received.
+
 Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
 not repeated. Promotion and treehouse lease recovery stay in command-post.
-Occupied-cwd warning belongs in `muxa spawn --cwd`. `bin/cp check` fail-closes
+Occupied-cwd warning belongs in `muxa dispatch --cwd`. `bin/cp check` fail-closes
 that policy (reads `muxa who --json`, promote-not-spawn) plus clone/worktree
-facts. Do not reimplement `muxa spawn`.
+facts. Do not reimplement `muxa dispatch`.
 
 ## 1. Duplicate spawn instead of promotion
 
@@ -25,16 +30,16 @@ active.
 ```
 same repo + same worktree still held (lease not returned)
   → muxa send <alias>  (promote)
-  → no muxa spawn, no new treehouse lease
+  → no muxa dispatch, no new treehouse lease
 
 worktree returned, or job is independent (other repo / second worktree)
   → treehouse get --lease from projects/<name>
-  → muxa spawn --cwd <worktree>
+  → bind the printed path; muxa dispatch --cwd "$worktree"
 ```
 
-Before spawn: `bin/cp check --project <name> <worktree>` (and `muxa who --json`
-`cwd`). `muxa spawn --cwd` warns if a registered worker already occupies
-that path — promote with `muxa send`, do not spawn a second pane. Ghost
+Before dispatch: `bin/cp check --project <name> "$worktree"` (and `muxa who --json`
+`cwd`). `muxa dispatch --cwd` warns if a registered worker already occupies
+that path — promote with `muxa send`, do not dispatch a second pane. Ghost
 panes: `muxa unregister`, do not promote.
 
 ## 2. Stale clone / "belongs to another repo"
@@ -64,14 +69,17 @@ preflight is not "treehouse unavailable."
 
 ## Orchestration notes
 
-- Before `muxa spawn`, run `bin/cp check --project <name> <worktree>`.
-  Promote with `muxa send` instead of duplicate spawn. Occupied cwd is
-  muxa's warning on `muxa spawn --cwd`; the checker applies promote-not-spawn
-  from `muxa who --json` and does not reimplement spawn.
+- Before `muxa dispatch`, run `bin/cp check --project <name> "$worktree"`.
+  Promote with `muxa send` instead of a second dispatch. Occupied cwd is
+  muxa's warning on `muxa dispatch --cwd`; the checker applies promote-not-spawn
+  from `muxa who --json` and does not reimplement dispatch.
+- Bind the leased path to a variable and pass it; do not retype.
+- `state: dispatched` means queued, not received. Confirm the brief token
+  with one `muxa tail NAME`.
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.
 - `bin/cp jobs` is runtime-only (worker + worktree + branch, keyed by br id);
   br holds kind / delivery / status / PR. Do not store those on the runtime map.
-- Parallel `muxa spawn` can race and assign the same alias; spawn sequentially
+- Parallel `muxa dispatch` can race and assign the same alias; dispatch sequentially
   or pass `--name` so send targets stay unique.

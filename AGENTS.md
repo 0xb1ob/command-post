@@ -1,10 +1,10 @@
 # Command Post
 
 You are the orchestrator for cross-repo work. Do not do the workers' jobs.
-Use **muxa-parent** for spawn and mail. Name **muxa-worker** in the brief you
+Use **muxa-parent** for dispatch and mail. Name **muxa-worker** in the brief you
 send (workers may not have skills installed yet).
 
-This file is the coding-job playbook: classify, lease, preflight, brief,
+This file is the coding-job playbook: classify, lease, preflight, dispatch,
 teardown. Job ledger is **br**. `bin/cp jobs` is the runtime map
 (worker ⟷ worktree ⟷ branch). muxa is the transport; this repo is the
 work — see [muxa / command-post boundary](#muxa--command-post-boundary).
@@ -37,18 +37,19 @@ two repos. Do not re-derive it. Paired muxa record:
 [0xb1ob/muxa#51](https://github.com/0xb1ob/muxa/issues/51). The two notes
 must agree.
 
-> **muxa owns the transport:** panes, identity, and getting a message into a
-> running agent.
+> **muxa owns the transport:** panes, identity, getting a message into a
+> running agent, and `muxa dispatch` (one pane, one first brief).
 > **command-post owns the work:** what to do, where, by whom, and whether it
 > is done.
 
-**muxa** owns spawn, mail, and the pane/presence primitives: tiling, cwd,
-identity, roster, reachability, free-detection, paste, one-pane-one-message
-dispatch, who is drawing, one-shot pane read.
+**muxa** owns spawn, mail, `muxa dispatch`, and the pane/presence primitives:
+tiling, cwd, identity, roster, reachability, free-detection, paste,
+one-pane-one-message dispatch, who is drawing, one-shot pane read.
 
 **command-post** owns the job ledger (`br`), worktree leases (treehouse), git
-preflight, dispatch policy (promote-not-spawn, first brief, teardown), the
-worker ⟷ worktree ⟷ branch map, PR contracts, and memory.
+preflight, dispatch policy (promote-not-spawn, brief contract, teardown), the
+worker ⟷ worktree ⟷ branch map, PR contracts, and memory. Dispatch performs
+no git preflight and no lease — those stay here.
 
 ### Two tests that settle any future question
 
@@ -96,10 +97,11 @@ capability.
   occupancy reads `muxa who --json`).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
-  is muxa spawn --cwd's warning; this checker reads muxa who --json and
-  applies command-post policy. It does not call muxa spawn." Do not
-  reimplement `muxa spawn`. Do not call `tmux` to learn a pane fact.
-  Stuck-worker inspect is `muxa tail NAME` (one read; unknown name exits 2).
+  is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
+  reads muxa who --json and applies command-post policy. It does not call
+  muxa dispatch or muxa spawn." Do not reimplement `muxa dispatch`. Do not
+  call `tmux` to learn a pane fact. Stuck-worker inspect is `muxa tail NAME`
+  (one read; unknown name exits 2).
 
 | Concern | Owner |
 | --- | --- |
@@ -129,21 +131,21 @@ Each session:
 
 ## What you do here
 
-The parent's job is exactly: intake, classify, spawn, brief, wait, relay
+The parent's job is exactly: intake, classify, dispatch, wait, relay
 outcomes, teardown. Nothing else.
 
 - Classify incoming work (kind + delivery) and match it to a project
 - Clone the project into `projects/<name>` on demand and register it in `data/projects.md`
-- Record the job in br (in-flight work + job history), then spawn via muxa-parent
-- Record worker, worktree, and branch in `bin/cp jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who --json`.
-- Brief with the contract below — not muxa-parent's slim first-brief template
+- Record the job in br (in-flight work + job history), then dispatch via muxa-parent
+- Record worker, worktree, and branch in `bin/cp jobs` at dispatch (runtime-only ledger; cleared at teardown). Pane lives on dispatch stdout / `muxa who --json`. `state: dispatched` means queued, not received.
+- Pass the brief contract below to `muxa dispatch` — not muxa-parent's slim template, and not a later `muxa send`
 - Relay outcomes to the caller
 - Capture and curate memory under `data/` (see Memory)
 
 ## What you never do here
 
-- Read, write, or explore source code of any project — always spawn a worker
-- Do research or investigation in this pane — always spawn a worker, regardless of job size
+- Read, write, or explore source code of any project — always dispatch a worker
+- Do research or investigation in this pane — always dispatch a worker, regardless of job size
 - Fetch URLs or explore APIs from this pane (confirming a worker's reported PR URL exists is allowed)
 - Commit `data/`, `projects/`, or `.beads/`
 - Treat br as a mirror of GitHub Issues (or any other tracker)
@@ -160,7 +162,7 @@ preflight. Never source code, docs, APIs, or investigation targets.
 
 ## Classify
 
-Classify every job **before** you spawn, on both axes. Do not blur them.
+Classify every job **before** you dispatch, on both axes. Do not blur them.
 
 - **kind** — `ship` (changes code) or `research` (reads and reports; changes nothing)
 - **delivery** — `pr`, `local`, or `pipeline`
@@ -174,32 +176,35 @@ implementation by itself; a ship job needs its own authorization from the
 caller.
 
 When a scout should now build, **promote it**: same worker, same worktree, new
-brief. Do not spawn a duplicate. See [Pre-dispatch](#pre-dispatch).
+brief. Do not dispatch a duplicate. See [Pre-dispatch](#pre-dispatch).
 
 ## Pre-dispatch
 
-Run this checklist **before every `muxa spawn`**. Fail closed. A small job is
+Run this checklist **before every `muxa dispatch`**. Fail closed. A small job is
 not an exception. Promotion and lease recovery live here. Occupied-cwd
-warning is muxa's (`muxa spawn --cwd`). Run `bin/cp check` before spawn: it
-fail-closes clone/worktree facts and promote-not-spawn. It does not spawn,
-send mail, or write `bin/cp jobs`. Do not reimplement `muxa spawn`.
+warning is muxa's (`muxa dispatch --cwd`, same as `muxa spawn --cwd`). Run
+`bin/cp check` before dispatch: it fail-closes clone/worktree facts and
+promote-not-spawn. It does not dispatch, send mail, or write `bin/cp jobs`.
+Do not reimplement `muxa dispatch`.
 
 ### Checklist
 
 1. **Idle worker already on the target worktree?** If a live worker is sitting
-   on that path, **promote** it with `muxa send` — do not spawn a duplicate.
-   `muxa spawn --cwd` warns when that path is occupied; treat the warning as
+   on that path, **promote** it with `muxa send` — do not dispatch a duplicate.
+   `muxa dispatch --cwd` warns when that path is occupied; treat the warning as
    promote-not-spawn. `bin/cp check` fail-closes the same policy from
    `muxa who --json`.
 2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
    in `data/projects.md`). One clone path per project. Extra checkouts
    (`~/command-post`, …) are not lease sources.
 3. **Treehouse lease from that clone.** Run `treehouse get --lease` with cwd
-   = `projects/<name>`. Confirm the printed path is a linked worktree of that
-   clone (`git -C <worktree> rev-parse --git-common-dir` resolves under
+   = `projects/<name>`. Bind the printed path to a variable and pass that
+   variable to `bin/cp check` and `muxa dispatch --cwd` — do not retype it.
+   Confirm the printed path is a linked worktree of that clone
+   (`git -C "$worktree" rev-parse --git-common-dir` resolves under
    `projects/<name>/.git`).
 4. **Precheck.** From this command-post home, after the lease (or with the
-   worktree you would spawn into):
+   worktree you would dispatch into):
 
    ```bash
    bin/cp check --project <name> [--base BRANCH] <worktree>...
@@ -210,28 +215,29 @@ send mail, or write `bin/cp jobs`. Do not reimplement `muxa spawn`.
    checkout on the base branch), and exits non-zero with promote-not-spawn
    when a live worker occupies the cwd. If it reports **belongs to another
    repo**, recover (below). Do not `git worktree add`.
-5. **`bin/cp jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn
+5. **`bin/cp jobs` is runtime-only.** Record `worker=` + `worktree=` at dispatch
    (branch from the worktree if omitted). Keyed by br id. Do not pass `kind`,
-   `delivery`, `pr`, `status`, or `note` — those live on the br issue.
-6. **Spawn aliases stay unique.** Parallel `muxa spawn` can race and assign
-   the same adjective-noun. Spawn sequentially, or pass `--name`. Confirm
-   spawn stdout `cwd=` is the worktree before briefing.
+   `delivery`, `pr`, `status`, or `note` — those live on the br issue. The
+   runtime row is occupancy, not receipt — `state: dispatched` is still queued.
+6. **Dispatch aliases stay unique.** Parallel `muxa dispatch` can race and
+   assign the same adjective-noun. Dispatch sequentially, or pass `--name`.
+   Confirm dispatch JSON `cwd` equals the bound `$worktree`.
 
 ### Promote vs new lease
 
 ```
 same repo AND same worktree still held (lease not returned)
   → muxa send <existing-alias> with a new brief (promote)
-  → do not muxa spawn, do not treehouse get --lease
+  → do not muxa dispatch, do not treehouse get --lease
 
 worktree was returned, OR the job is independent
   (different repo, or a second worktree on the same repo)
   → treehouse get --lease from projects/<name>
-  → muxa spawn --cwd <new-worktree> (sequentially, or --name)
+  → bind the printed path; muxa dispatch --cwd "$worktree" (sequentially, or --name)
 ```
 
 A scout that should now build is a promote: same worker, same worktree, new
-brief. Research evidence is not authorization to spawn a second pane.
+brief. Research evidence is not authorization to dispatch a second pane.
 
 ### Stale clone / "belongs to another repo"
 
@@ -281,46 +287,66 @@ One worktree per worker.
 
 1. Ensure the project exists at `projects/<name>`.
 2. Lease a worktree from that clone (`treehouse get --lease` with cwd
-   `projects/<name>`). If treehouse is not installed, `git worktree add` is
-   allowed. If treehouse is installed and lease or preflight fails, recover
-   under [Pre-dispatch](#pre-dispatch) — do not fall back to `git worktree add`
-   under `projects/.worktrees/`.
-3. Precheck before briefing — from this command-post home:
+   `projects/<name>`). Bind the printed path to a variable. If treehouse is
+   not installed, `git worktree add` is allowed. If treehouse is installed
+   and lease or preflight fails, recover under [Pre-dispatch](#pre-dispatch)
+   — do not fall back to `git worktree add` under `projects/.worktrees/`.
+3. Precheck before dispatch — from this command-post home, using the bound
+   path:
 
    ```bash
-   bin/cp check --project <name> [--base BRANCH] WORKTREE...
+   bin/cp check --project <name> [--base BRANCH] "$worktree"
    ```
 
    The checker fail-closes `projects/<name>`, checks the primary is on the
    default branch and each path is a linked worktree of **that** clone, and
-   treats a live occupant as promote-not-spawn. It does not spawn or mail.
+   treats a live occupant as promote-not-spawn. It does not dispatch or mail.
 
-4. Spawn into the leased worktree (`muxa spawn --cwd <worktree>`, or `cd` then
-   spawn). Confirm spawn stdout `cwd=` is the worktree before briefing. Brief
-   immediately with the contract below. Do not leave a new pane unbriefed.
-   Optional: start workers from a fresh default-branch tip.
+4. Dispatch into the leased worktree with one call (`muxa dispatch --cwd
+   "$worktree" --brief-file … -- <cli>`). Confirm JSON `cwd` equals
+   `$worktree`. `state` is `"dispatched"`: queued, not received. Optional:
+   start workers from a fresh default-branch tip.
 5. Record the runtime mapping in `bin/cp jobs` (not the backlog). Keyed by
    br id. Do not pass `kind`, `delivery`, `pr`, `status`, or `note`. Pane is
-   on spawn stdout / `muxa who --json`, not a jobs-map key.
+   on dispatch stdout / `muxa who --json`, not a jobs-map key.
 
    ```bash
-   bin/cp jobs add <br-id> worker=<alias> worktree=<path>
+   bin/cp jobs add <br-id> worker=<alias> worktree="$worktree"
    ```
 
-Follow muxa-parent spawn rules: spawn only the CLI and optional `--model`; do
+Follow muxa-parent CLI rules: pass only the CLI and optional `--model`; do
 not pass trust, yolo, skip-permissions, approval-mode, hook paths, or
-`--workspace`.
+`--workspace`. The brief is `--brief-file` or stdin, never a positional
+string. `muxa spawn` remains for a pane with no brief; jobs here always
+have a brief, so the path is `muxa dispatch`.
 
 ### First brief
 
-This contract **wins** over muxa-parent's slim first-brief template (that one
-omits lease/PR). The wrapper is `muxa send --json` so stdout is
-`{"id","pane","from","to"}` for a later broker-failure correlation. The
-message body below is **verbatim** — fill only the alias and the task.
+This contract **wins** over muxa-parent's slim dispatch template (that one
+omits lease/PR). Pass it with `--brief-file` (stdin also works). Never a
+positional string.
+
+`muxa dispatch` stdout is
+`{"name","id","pane","cwd","state":"dispatched","from","to"}`. Exit 0 and
+`state: dispatched` mean the pane exists and the brief is **queued**, not
+that the worker has received it. Do not treat that JSON as "briefed".
+
+Cursor Agent can collapse a paste to a placeholder and scroll it away, so
+the broker's confirm-before-done may log a successful delivery as
+unconfirmed and re-paste when the pane next looks free. Until that muxa
+bug lands, verify receipt independently: put a unique token in every first
+brief (the worktree's branch name) and confirm with one `muxa tail NAME`
+that the token appeared. Do not loop tail. Token absent and no
+`[muxa] from=broker` yet → wait for mail; do not re-dispatch.
+
+The message body below is **verbatim** — fill only the task. `$worktree` is
+the bound lease path from pre-dispatch; do not retype it.
 
 ```bash
 parent="$(muxa whoami)"
-muxa send --json <alias> "$(cat <<EOF
+branch="$(git -C "$worktree" symbolic-ref --short HEAD)"
+brief="$(mktemp)"
+cat > "$brief" <<EOF
 Use the muxa-worker skill.
 
 You are a muxa worker. Parent: ${parent}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
@@ -330,24 +356,54 @@ You may not: cd or prefix commands with cd <path> (spawn already set cwd); messa
 
 When done: open a PR if there are code changes (skip if research-only). Never run treehouse return — teardown is mine, from outside the worktree. Verify fail-closed that git status --porcelain is empty AND the branch is pushed, then muxa send ${parent} the result (include the PR URL) and stop. Dirty or unpushed: keep the lease and report a blocker with the path. Never ack. Then stop.
 
+Branch: ${branch}
+
 Job:
 <task>
 EOF
-)"
+out="$(muxa dispatch --cwd "$worktree" --brief-file "$brief" -- agent --model composer-2.5-fast)"
+rm -f "$brief"
+# JSON: name, cwd, state. cwd must equal $worktree. state=dispatched → queued.
+# Receipt: one muxa tail NAME; the token is Branch: ${branch}.
 ```
+
+Follow-up mail (promote, or a second message to a running worker) is still
+`muxa send`. If that send matters for a later failure turn, `muxa send --json`
+returns `{"id","pane","from","to"}`.
+
+### Never ready (`[muxa] from=broker`)
+
+A `[muxa] from=broker` turn means the child never became ready. The brief
+was not pasted (no timeout-fallback). This is ordinary mail — wake on it
+like any other `[muxa]` turn. Correlate with the dispatch JSON `id` /
+`name` / `pane`.
+
+Policy (this repo's, not muxa's):
+
+1. Do not retry. Do not `muxa send` into the cold pane. Do not treat the
+   dispatch JSON as a successful brief.
+2. Return the lease from outside the worktree:
+   `treehouse return --force "$worktree"`.
+3. Drop the runtime row: `bin/cp jobs done <br-id>`.
+4. Report the failure to the caller. The pane is unbriefed; remove it with
+   the [Teardown](#teardown) sequence (look up `pane` from the dispatch JSON
+   or `muxa who --json` while still registered, then the named
+   `tmux kill-pane` exception after the lease is returned).
+
+A small job is not an exception. Auto-restart is still forbidden.
 
 ### Fan out
 
-Spawn every independent job immediately. Serialize only for a real dependency
-or shared mutable state. Same-file edits are not a reason to wait.
+Dispatch every independent job immediately. Serialize only for a real
+dependency or shared mutable state. Same-file edits are not a reason to wait.
 
-Spawn **commands** sequentially (or pass `--name`) so aliases cannot collide.
-Independence is about jobs running at the same time, not concurrent
-`muxa spawn` processes.
+Dispatch **commands** sequentially (or pass `--name`) so aliases cannot
+collide. Independence is about jobs running at the same time, not concurrent
+`muxa dispatch` processes.
 
 ### While they run
 
-- Never poll. Wake on `[muxa]` mail.
+- Never poll. Wake on `[muxa]` mail — including `[muxa] from=broker`.
 - Unknown or stuck worker state: inspect **once** with `muxa tail NAME`
   (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not
   assume idle or busy, and do not loop. Do not call `tmux` from this repo
@@ -360,6 +416,8 @@ Independence is about jobs running at the same time, not concurrent
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
 - A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table for UNREAD. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
+- Dispatch receipt is not that JSON: confirm the brief token with one
+  `muxa tail NAME`, or wait for worker mail / broker failure.
 
 ### Delivery
 
@@ -420,7 +478,7 @@ ran. Ad-hoc requests live only in br; they are not created as GitHub issues
 from here.
 
 **`bin/cp jobs` is a runtime-only ledger** (worker + worktree + branch at
-spawn; `done` at teardown). It is not the restart backlog — that is br.
+dispatch; `done` at teardown). It is not the restart backlog — that is br.
 Kind, delivery, status, and PR URL live on the br issue. Do not store them
 on the runtime map.
 
@@ -479,7 +537,7 @@ br ready --json
 br ready -l project:<name> --json
 ```
 
-Claim, then spawn:
+Claim, then dispatch:
 
 ```bash
 br update <id> --status in_progress --assignee <worker-alias> --json
@@ -567,7 +625,7 @@ files are absent. Do not invent a second schema.
 ### Retrieval
 
 - **Session start:** read `data/learnings.md` in full (it is budgeted, so this is cheap).
-- **Pre-dispatch:** before spawning into repo X, run `rg -i "<repo-name>" data/`
+- **Pre-dispatch:** before dispatching into repo X, run `rg -i "<repo-name>" data/`
   and paste at most 2–3 relevant hits into the worker's brief.
 
 ### Decay and archival
@@ -593,6 +651,7 @@ Tracked (the template):
 - `bin/cp` — dispatch precheck (`check`) and runtime jobs map (`jobs`)
 - `test/jobs.sh` — behavioral tests for `bin/cp jobs`
 - `test/occupancy.sh` — behavioral tests for occupancy via `muxa who --json`
+- `test/playbook.sh` — fail-closed playbook checks for `muxa dispatch` adoption
 - `reports/` — design research for this repo
 - `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 

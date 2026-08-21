@@ -25,7 +25,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 **Phase 1 — deps**
 
 1. Checks prerequisites: `git`, `curl`, `tmux`, `python3` (muxa requires tmux and python3)
-2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes skills/hooks on re-run), then checks that `muxa-broker` sits next to it — without the broker, `muxa send` falls back to pasting. muxa's installer provides that binary; command-post never compiles it. The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
+2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes skills/hooks on re-run), then checks that `muxa-broker` sits next to it — without the broker, `muxa send` falls back to pasting and `muxa dispatch` cannot enqueue. muxa's installer provides that binary; command-post never compiles it. The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
 3. Installs [`br`](https://github.com/Dicklesworthstone/beads_rust) (beads) with `--skip-skills`
 4. Installs [`treehouse`](https://github.com/kunchenguid/treehouse) for worktree leasing
 
@@ -41,7 +41,7 @@ Put `~/.local/bin` on your `PATH` if it is not already. Re-run anytime; existing
 
 Ask the agent to do work (a GitHub issue URL, or an ad-hoc request). It will
 clone the target repo into `projects/<name>` if needed, record it in
-`data/projects.md`, track the job with `br`, lease a worktree, and spawn a
+`data/projects.md`, track the job with `br`, lease a worktree, and dispatch a
 worker.
 
 ## Layout
@@ -71,12 +71,14 @@ Do not commit `data/`, `state/`, `projects/`, `.beads/`, or harness skill copies
 
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.
 
-Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Spawn and mail
+Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Dispatch and mail
 use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`. Before
-`muxa spawn`, run `bin/cp check --project <name> <worktree>` (canonical clone,
+`muxa dispatch`, run `bin/cp check --project <name> <worktree>` (canonical clone,
 git preflight, promote-not-spawn occupancy via `muxa who --json`). Idle worker on a held
-worktree → `muxa send` (promote). `muxa spawn --cwd` warns if that cwd is
-already occupied; do not spawn a duplicate. Lease only from `projects/<name>`;
+worktree → `muxa send` (promote). `muxa dispatch --cwd` warns if that cwd is
+already occupied; do not dispatch a duplicate. Bind the leased path to a
+variable and pass it — do not retype. `state: dispatched` means the brief is
+queued, not received. Lease only from `projects/<name>`;
 see [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
 
 ## Contract
