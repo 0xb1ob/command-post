@@ -312,7 +312,7 @@ check_occupancy() {
         collisions=$((collisions + 1))
         ;;
       ghost)
-        printf '[cp] occupied cwd: ghost worker %s on %s — muxa unregister; do not promote, do not dispatch\n' "$name" "$resolved" >&2
+        printf '[cp] occupied cwd: ghost worker %s on %s — muxa kill NAME|ID for a dead pane, or restart the CLI in that pane; do not promote, do not dispatch\n' "$name" "$resolved" >&2
         ghost_hits=$((ghost_hits + 1))
         ;;
       *)

@@ -82,6 +82,10 @@ set_who <<EOF
 EOF
 expect_rc_msg 1 "ghost worker gone-fox" "ghost occupant is occupied-cwd" \
   "$CP" check --project demo "$WT"
+expect_rc_msg 1 "muxa kill NAME|ID" "ghost remedy is muxa kill NAME|ID" \
+  "$CP" check --project demo "$WT"
+expect_rc_msg 1 "restart the CLI in that pane" "ghost remedy offers restarting the CLI" \
+  "$CP" check --project demo "$WT"
 
 # skip self
 export MUXA_WHOAMI=swift-oak
