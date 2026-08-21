@@ -4,7 +4,7 @@
 #   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
 #   bin/cp jobs add|set|done|list ...
 #
-# check: fail-closed dispatch precheck. Does not spawn, send mail, write
+# check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
 #
 # Exit:
@@ -22,16 +22,16 @@
 #      paths resolve against the clone, not this process cwd. The distinctive
 #      wrong-clone line is "belongs to another repo".
 #   3. If muxa who --json shows a live registered worker occupying a target
-#      worktree cwd, fail with promote-not-spawn. Occupancy is muxa spawn
-#      --cwd's warning; this checker reads muxa who --json and applies
-#      command-post policy. It does not call muxa spawn. It does not call
-#      tmux. Do not parse the human who table.
+#      worktree cwd, fail with promote-not-spawn. Occupancy is muxa dispatch
+#      --cwd's warning (same as muxa spawn --cwd); this checker reads muxa who
+#      --json and applies command-post policy. It does not call muxa dispatch
+#      or muxa spawn. It does not call tmux. Do not parse the human who table.
 #
 # jobs: runtime worker ⟷ worktree ⟷ branch map, keyed by br issue id.
 # Durable kind / delivery / status / PR URL live on the br issue — this
 # command rejects those fields (they existed on muxa jobs only because
 # that CLI required them). State: $CP_HOME/state/jobs.tsv (gitignored).
-# Does not call tmux; pane facts stay on muxa who --json / spawn stdout.
+# Does not call tmux; pane facts stay on muxa who --json / dispatch stdout.
 #
 # Command-post home is this script's repo root, or CP_HOME if set.
 # Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
@@ -308,15 +308,15 @@ check_occupancy() {
     case "$status" in
       live)
         printf '[cp] promote-not-spawn: live worker %s occupies %s\n' "$name" "$resolved" >&2
-        printf '[cp] same worktree still held → muxa send %s (do not muxa spawn, do not treehouse get --lease)\n' "$name" >&2
+        printf '[cp] same worktree still held → muxa send %s (do not muxa dispatch, do not treehouse get --lease)\n' "$name" >&2
         collisions=$((collisions + 1))
         ;;
       ghost)
-        printf '[cp] occupied cwd: ghost worker %s on %s — muxa unregister; do not promote, do not spawn\n' "$name" "$resolved" >&2
+        printf '[cp] occupied cwd: ghost worker %s on %s — muxa unregister; do not promote, do not dispatch\n' "$name" "$resolved" >&2
         ghost_hits=$((ghost_hits + 1))
         ;;
       *)
-        printf '[cp] occupied cwd: worker %s (status %s) on %s — do not spawn\n' "$name" "$status" "$resolved" >&2
+        printf '[cp] occupied cwd: worker %s (status %s) on %s — do not dispatch\n' "$name" "$status" "$resolved" >&2
         collisions=$((collisions + 1))
         ;;
     esac

@@ -69,6 +69,8 @@ set_who <<EOF
 EOF
 expect_rc_msg 1 "promote-not-spawn: live worker swift-oak occupies" "live occupant is promote-not-spawn" \
   "$CP" check --project demo "$WT"
+expect_rc_msg 1 "do not muxa dispatch" "live occupant forbids a second dispatch" \
+  "$CP" check --project demo "$WT"
 
 # ghost occupant
 set_who <<EOF

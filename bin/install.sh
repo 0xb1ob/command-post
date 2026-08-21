@@ -73,8 +73,8 @@ install_muxa() {
 }
 
 # muxa >=0.3 `muxa send` needs muxa-broker next to the realpath of bin/muxa;
-# without it sends degrade to paste-fallback. Installing it is muxa's job, so
-# only report here — never build.
+# without it sends degrade to paste-fallback and muxa dispatch cannot enqueue.
+# Installing it is muxa's job, so only report here — never build.
 check_muxa_broker() {
   local muxa_bin real bin_dir broker
   # Prefer the symlink this install just wrote; only then whatever PATH has,
@@ -96,7 +96,7 @@ check_muxa_broker() {
     return 0
   fi
 
-  warn "muxa-broker: missing next to $real — muxa send will paste-fallback. Update muxa (its installer ships the broker binary); do not build it here."
+  warn "muxa-broker: missing next to $real — muxa send will paste-fallback and muxa dispatch cannot enqueue. Update muxa (its installer ships the broker binary); do not build it here."
 }
 
 install_br() {
