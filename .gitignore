@@ -3,7 +3,7 @@ data/
 projects/
 .beads/
 
-# Runtime / secrets
+# Runtime jobs map (state/jobs.tsv) / secrets
 state/
 .env
 captain.md

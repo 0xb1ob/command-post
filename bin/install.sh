@@ -157,8 +157,8 @@ scaffold() {
   log "phase 2: scaffold"
   cd "$ROOT"
 
-  mkdir -p data projects
-  log "dirs: data/ projects/"
+  mkdir -p data projects state
+  log "dirs: data/ projects/ state/"
 
   write_if_absent data/projects.md <<'EOF'
 # Projects

@@ -5,9 +5,9 @@ Use **muxa-parent** for spawn and mail. Name **muxa-worker** in the brief you
 send (workers may not have skills installed yet).
 
 This file is the coding-job playbook: classify, lease, preflight, brief,
-teardown. Job ledger is **br**. `muxa jobs` is a runtime map only. muxa is
-the transport; this repo is the work — see [muxa / command-post
-boundary](#muxa--command-post-boundary).
+teardown. Job ledger is **br**. `bin/cp jobs` is the runtime map
+(worker ⟷ worktree ⟷ branch). muxa is the transport; this repo is the
+work — see [muxa / command-post boundary](#muxa--command-post-boundary).
 
 ## Role check (do this first)
 
@@ -68,11 +68,11 @@ When the two overlap, the tests pick one owner. They do not share the
 capability.
 
 - **Into command-post** when it does not need tmux, or when it must know
-  what a job is. This file already records the jobs case, under
-  [Backlog (br)](#backlog-br): "`kind`/`delivery` on `muxa jobs add` exist
-  only because the CLI requires them; authoritative kind, delivery, status,
-  and PR URL live on the br issue." Git preflight lives in `bin/cp check`
-  (it does not need tmux; occupancy still reads `muxa who`).
+  what a job is. [`bin/cp jobs`](bin/cp) is the jobs case: a runtime
+  worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
+  and PR URL live on the br issue — muxa is not asked to know what a job
+  is. Git preflight lives in `bin/cp check` (it does not need tmux;
+  occupancy still reads `muxa who`).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa spawn --cwd's warning; this checker reads muxa who and applies
@@ -113,7 +113,7 @@ outcomes, teardown. Nothing else.
 - Classify incoming work (kind + delivery) and match it to a project
 - Clone the project into `projects/<name>` on demand and register it in `data/projects.md`
 - Record the job in br (in-flight work + job history), then spawn via muxa-parent
-- Record worker and worktree in `muxa jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who`.
+- Record worker, worktree, and branch in `bin/cp jobs` at spawn (runtime-only ledger; cleared at teardown). Pane lives on spawn stdout / `muxa who`.
 - Brief with the contract below — not muxa-parent's slim first-brief template
 - Relay outcomes to the caller
 - Capture and curate memory under `data/` (see Memory)
@@ -141,8 +141,8 @@ Classify every job **before** you spawn, on both axes. Do not blur them.
 - **delivery** — `pr`, `local`, or `pipeline`
 
 Persist them on the br issue (`delivery:` required; `kind:` when it helps
-filtering). Copy `kind=` / `delivery=` into `muxa jobs add` only because that
-CLI requires them.
+filtering). Do not copy them into `bin/cp jobs` — that map is worker,
+worktree, and branch only.
 
 Evidence is not authorization. A research or scout result never starts an
 implementation by itself; a ship job needs its own authorization from the
@@ -157,7 +157,7 @@ Run this checklist **before every `muxa spawn`**. Fail closed. A small job is
 not an exception. Promotion and lease recovery live here. Occupied-cwd
 warning is muxa's (`muxa spawn --cwd`). Run `bin/cp check` before spawn: it
 fail-closes clone/worktree facts and promote-not-spawn. It does not spawn,
-send mail, or write `muxa jobs`. Do not reimplement `muxa spawn`.
+send mail, or write `bin/cp jobs`. Do not reimplement `muxa spawn`.
 
 ### Checklist
 
@@ -185,9 +185,9 @@ send mail, or write `muxa jobs`. Do not reimplement `muxa spawn`.
    checkout on the base branch), and exits non-zero with promote-not-spawn
    when a live worker occupies the cwd. If it reports **belongs to another
    repo**, recover (below). Do not `git worktree add`.
-5. **`muxa jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn.
-   Do not set `pr`, `status`, or `note=<br-id>`. Kind, delivery, status, and
-   PR URL live on the br issue.
+5. **`bin/cp jobs` is runtime-only.** Record `worker=` + `worktree=` at spawn
+   (branch from the worktree if omitted). Keyed by br id. Do not pass `kind`,
+   `delivery`, `pr`, `status`, or `note` — those live on the br issue.
 6. **Spawn aliases stay unique.** Parallel `muxa spawn` can race and assign
    the same adjective-noun. Spawn sequentially, or pass `--name`. Confirm
    spawn stdout `cwd=` is the worktree before briefing.
@@ -274,13 +274,12 @@ One worktree per worker.
    spawn). Confirm spawn stdout `cwd=` is the worktree before briefing. Brief
    immediately with the contract below. Do not leave a new pane unbriefed.
    Optional: start workers from a fresh default-branch tip.
-5. Record the runtime mapping in `muxa jobs` (not the backlog). Do not set
-   `pr`, `status`, or `note=<br-id>`. Pane is on spawn stdout / `muxa who`,
-   not a `muxa jobs` key.
+5. Record the runtime mapping in `bin/cp jobs` (not the backlog). Keyed by
+   br id. Do not pass `kind`, `delivery`, `pr`, `status`, or `note`. Pane is
+   on spawn stdout / `muxa who`, not a jobs-map key.
 
    ```bash
-   muxa jobs add <job> kind=<from-br> delivery=<from-br> \
-     worker=<alias> worktree=<path>
+   bin/cp jobs add <br-id> worker=<alias> worktree=<path>
    ```
 
 Follow muxa-parent spawn rules: spawn only the CLI and optional `--model`; do
@@ -357,7 +356,7 @@ asking — which is why the worker's clean-and-pushed gate comes first. A worker
 that reports dirty or unpushed keeps the lease: do not return it, fix the
 blocker at the path it gave you.
 
-Then clear the runtime row with `muxa jobs done <job>` and **no** `pr=`. Put
+Then clear the runtime row with `bin/cp jobs done <br-id>` (no `pr=`). Put
 the PR URL on `br close` (see Completion).
 
 ### Report
@@ -377,11 +376,10 @@ issues are queryable job history** — memory of what this command post actually
 ran. Ad-hoc requests live only in br; they are not created as GitHub issues
 from here.
 
-**`muxa jobs` is a runtime-only ledger** (worker + worktree at spawn; `done`
-with no `pr=` at teardown). It is not the restart backlog — that is br.
-`kind`/`delivery` on `muxa jobs add` exist only because the CLI requires them;
-authoritative kind, delivery, status, and PR URL live on the br issue. Do not
-cross-link via `note=<br-id>`.
+**`bin/cp jobs` is a runtime-only ledger** (worker + worktree + branch at
+spawn; `done` at teardown). It is not the restart backlog — that is br.
+Kind, delivery, status, and PR URL live on the br issue. Do not store them
+on the runtime map.
 
 Pass `--json` on `br` commands when you need to parse the result.
 
@@ -549,7 +547,8 @@ Tracked (the template):
 - `AGENTS.md` / `CLAUDE.md` — this contract
 - `README.md` — clone-and-go usage
 - `bin/install.sh` — clone-and-go setup (deps + scaffold; embeds `data/` file contracts)
-- `bin/cp` — dispatch precheck (`check`; no spawn, mail, jobs, or br)
+- `bin/cp` — dispatch precheck (`check`) and runtime jobs map (`jobs`)
+- `test/jobs.sh` — behavioral tests for `bin/cp jobs`
 - `reports/` — design research for this repo
 - `skills/` — canonical agent skills (cp-memory); `bin/install.sh` copies into harness dirs
 
@@ -559,6 +558,7 @@ Gitignored (this machine):
 - `data/learnings.md` — curated memory
 - `data/candidates.md` — reflection capture
 - `data/archive.md` — cold tier
+- `state/` — runtime jobs map (`state/jobs.tsv`); row gone at teardown
 - `projects/` — cloned repos
 - `.beads/` — local br state. Not committed.
 - `captain.md` — caller preferences (optional)

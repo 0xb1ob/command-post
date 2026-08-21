@@ -71,7 +71,7 @@ preflight is not "treehouse unavailable."
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.
-- `muxa jobs` is runtime-only (worker + worktree); br holds kind / delivery /
-  status / PR. Do not cross-link via `note=<br-id>`.
+- `bin/cp jobs` is runtime-only (worker + worktree + branch, keyed by br id);
+  br holds kind / delivery / status / PR. Do not store those on the runtime map.
 - Parallel `muxa spawn` can race and assign the same alias; spawn sequentially
   or pass `--name` so send targets stay unique.
