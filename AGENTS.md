@@ -60,7 +60,28 @@ worker ⟷ worktree ⟷ branch map, PR contracts, and memory.
 - **muxa may never require `br`, `git`, or a job id.** If a command's
   argument is a br key, it is in the wrong repo.
 - **command-post may never call `tmux` directly.** If it needs a pane fact,
-  muxa must expose it.
+  muxa must expose it (`muxa who --json`, `muxa tail NAME`).
+
+### Named temporary exception: `tmux kill-pane` at teardown
+
+The constraint above is not softened. One call is permitted until muxa
+grows a kill surface, and only that call:
+
+- **What:** `tmux kill-pane -t <pane>` — remove a **finished** worker's
+  pane. `<pane>` comes from `muxa who --json` (the `pane` field), not from
+  `tmux`.
+- **Who / where / when:** the **parent**, from **outside the worktree**,
+  **after** `treehouse return --force`.
+- **Why:** muxa 0.3.0 has spawn and unregister only. `muxa unregister`
+  is "clear muxa registration; leave pane running". There is no kill,
+  close, or teardown command.
+- **Until:** [0xb1ob/muxa#56](https://github.com/0xb1ob/muxa/issues/56)
+  lands — then delete this subsection, the teardown copy, and the
+  "What you never do here" pointer. The exception must not become
+  permanent by neglect.
+
+This is not a licence to read pane facts, inspect stuck workers, poll,
+or kill anything else. Operational steps: [Teardown](#teardown).
 
 ### Which way a capability moves
 
@@ -127,7 +148,10 @@ outcomes, teardown. Nothing else.
 - Commit `data/`, `projects/`, or `.beads/`
 - Treat br as a mirror of GitHub Issues (or any other tracker)
 - Add MCP tools for muxa
-- Call `tmux` directly — if you need a pane fact, muxa must expose it
+- Call `tmux` directly — if you need a pane fact, muxa must expose it.
+  The one named exception is teardown pane removal
+  ([Named temporary exception: `tmux kill-pane` at teardown](#named-temporary-exception-tmux-kill-pane-at-teardown));
+  it is not a general licence.
 - Poll a worker, or restart one without being asked
 - Do the worker's job because "it's small enough to do here"
 
@@ -326,11 +350,13 @@ Independence is about jobs running at the same time, not concurrent
 - Never poll. Wake on `[muxa]` mail.
 - Unknown or stuck worker state: inspect **once** with `muxa tail NAME`
   (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not
-  assume idle or busy, and do not loop. Do not call `tmux` from this repo.
+  assume idle or busy, and do not loop. Do not call `tmux` from this repo
+  (the named `tmux kill-pane` exception is teardown of a finished worker,
+  not inspect).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control
   (`muxa unregister`) — never a chat message. Do not call `tmux` from this
-  repo.
+  repo to inspect or to kill a worker that is still on a job.
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
 - A queued message reaches an idle hook pane on its next turn; use `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table for UNREAD. If the send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
@@ -348,11 +374,25 @@ shell and can leave the lease held.
 
 The worker only verifies `git status --porcelain` is empty and the branch is
 pushed, then reports and stops. On that result, run the return yourself
-**from outside the worktree**, then you may kill the pane:
+**from outside the worktree**. Then the parent may remove the finished
+worker's pane.
+
+muxa 0.3.0 has spawn and unregister only; `muxa unregister` leaves the
+pane running. There is no muxa kill/close/teardown command
+([0xb1ob/muxa#56](https://github.com/0xb1ob/muxa/issues/56)). Until that
+lands, **this is the only permitted `tmux` call in this repo** — see
+[Named temporary exception: `tmux kill-pane` at teardown](#named-temporary-exception-tmux-kill-pane-at-teardown).
+Look up `<pane>` from `muxa who --json` while the worker is still
+registered, then:
 
 ```bash
 treehouse return --force <worktree>
+tmux kill-pane -t <pane>
 ```
+
+Parent only; finished worker only; outside the worktree; after the lease
+is returned. Not a licence to inspect, poll, or kill anything else. When
+#56 lands, delete the exception and use muxa's surface.
 
 Plain `treehouse return` prompts interactively; `--force` resets without
 asking — which is why the worker's clean-and-pushed gate comes first. A worker
