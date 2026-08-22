@@ -393,10 +393,10 @@ collide. Independence is about jobs running at the same time, not concurrent
 - Freeze scope once validation starts. New scope is a new job.
 - You never do the worker job. Even a small change goes to a worker.
 - A queued message reaches an idle hook pane on its next turn; the broker
-  pastes when the pane looks free — there is nothing to trigger manually. Use
-  `muxa deliver` if you need it now. Do not scrape `muxa who`'s human table
-  for UNREAD; use `muxa who --json`. If the send matters for a later failure
-  turn, `muxa send --json` returns `{"id","pane","from","to"}`.
+  pastes when the pane looks free — there is nothing to trigger manually.
+  Do not scrape `muxa who`'s human table for UNREAD; use `muxa who --json`.
+  If the send matters for a later failure turn, `muxa send --json` returns
+  `{"id","pane","from","to"}`.
 - Dispatch receipt is not that JSON — see [First brief](#first-brief): confirm
   the brief token with one `muxa tail NAME`, or wait for worker mail / broker
   failure.

@@ -85,9 +85,10 @@ install_muxa() {
   die "muxa install failed (could not fetch or run $MUXA_INSTALL_URL). Check network, or set MUXA_INSTALL_URL."
 }
 
-# muxa >=0.3 `muxa send` needs muxa-broker next to the realpath of bin/muxa;
-# without it sends degrade to paste-fallback and muxa dispatch cannot enqueue.
-# Installing it is muxa's job, so only report here — never build.
+# muxa send / muxa who --json need muxa-broker next to the realpath of bin/muxa;
+# without it, send exits non-zero and pastes nothing, and who --json fails
+# (JSON encoding is in the broker). muxa's SPEC is fail-closed — no paste-buffer
+# fallback. Installing the broker is muxa's job, so only report here — never build.
 check_muxa_broker() {
   local muxa_bin real bin_dir broker
   # Prefer the symlink this install just wrote; only then whatever PATH has,
@@ -109,7 +110,7 @@ check_muxa_broker() {
     return 0
   fi
 
-  warn "muxa-broker: missing next to $real — muxa send will paste-fallback and muxa dispatch cannot enqueue. Update muxa (its installer ships the broker binary); do not build it here."
+  warn "muxa-broker: missing next to $real — muxa send exits non-zero and pastes nothing; muxa who --json also fails. Update muxa (its installer ships the broker binary); do not build it here."
 }
 
 install_br() {
