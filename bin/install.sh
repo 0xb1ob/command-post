@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent command-post setup. No arguments.
-# Phase 1 (deps): muxa (+ the muxa-broker binary its installer ships), br
+# Phase 1 (deps): muxa (single binary; broker via `muxa broker`), br
 # (beads), treehouse — skip if already on PATH. Nothing here compiles.
 # Phase 2 (scaffold): data/, projects/, data/*.md templates, br init --prefix cp,
 # copy tracked skills/ into gitignored agent-harness skill dirs.
@@ -23,21 +23,6 @@ on_path() {
     *:"$1":*) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-# Resolve symlinks like muxa broker_bin_path (while readlink + pwd -P).
-canonical_path() {
-  local src="$1" dir target
-  while [ -L "$src" ]; do
-    dir="$(dirname "$src")"
-    target="$(readlink "$src")"
-    case "$target" in
-      /*) src="$target" ;;
-      *) src="$dir/$target" ;;
-    esac
-  done
-  dir="$(cd "$(dirname "$src")" && pwd -P)"
-  printf '%s/%s\n' "$dir" "$(basename "$src")"
 }
 
 ensure_bin_dir() {
@@ -72,45 +57,57 @@ install_muxa() {
   # walks up to this repo's .git: "cannot find main module, but found
   # .git/config in <command-post>". So run the installer from a scratch dir
   # with no repo and no go.mod above it. command-post compiles nothing, never
-  # invokes go, and must not gain a go.mod — muxa ships its own broker binary.
+  # invokes go, and must not gain a go.mod — muxa ships a release binary.
   local scratch rc=0
   scratch="$(mktemp -d)"
   (cd "$scratch" && curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" bash) || rc=$?
   rmdir "$scratch" 2>/dev/null || true
   if [[ "$rc" -eq 0 ]]; then
-    check_muxa_broker
+    verify_muxa
     return 0
   fi
 
   die "muxa install failed (could not fetch or run $MUXA_INSTALL_URL). Check network, or set MUXA_INSTALL_URL."
 }
 
-# muxa send / muxa who --json need muxa-broker next to the realpath of bin/muxa;
-# without it, send exits non-zero and pastes nothing, and who --json fails
-# (JSON encoding is in the broker). muxa's SPEC is fail-closed — no paste-buffer
-# fallback. Installing the broker is muxa's job, so only report here — never build.
-check_muxa_broker() {
-  local muxa_bin real bin_dir broker
-  # Prefer the symlink this install just wrote; only then whatever PATH has,
-  # so a stale muxa elsewhere on PATH is not the one we check.
+# muxa is one binary; the paste broker is `muxa broker start` (muxa's installer
+# stops a live daemon before replacing the binary, then starts it again in tmux).
+verify_muxa() {
+  local muxa_bin
+  # Drop stale separate-broker symlink from older muxa (<1.0.5).
+  [[ -L "$BIN/muxa-broker" ]] && rm -f "$BIN/muxa-broker"
+
   if [[ -e "$BIN/muxa" ]]; then
     muxa_bin="$BIN/muxa"
   else
     muxa_bin="$(command -v muxa || true)"
   fi
-  [[ -n "$muxa_bin" && -e "$muxa_bin" ]] || { warn "muxa-broker: no muxa at $BIN/muxa or on PATH"; return 0; }
-
-  real="$(canonical_path "$muxa_bin")"
-  bin_dir="$(dirname "$real")"
-  broker="$bin_dir/muxa-broker"
-
-  if [[ -x "$broker" ]]; then
-    ln -sfn "$broker" "$BIN/muxa-broker"
-    log "muxa-broker: $broker"
+  [[ -n "$muxa_bin" && -x "$muxa_bin" ]] || {
+    warn "muxa: not found at $BIN/muxa or on PATH"
     return 0
+  }
+  log "muxa: $("$muxa_bin" version 2>/dev/null || echo installed) -> $muxa_bin"
+  if [[ -n "${TMUX:-}" || -n "${MUXA_TMUX_SOCKET:-}" ]]; then
+    if ! "$muxa_bin" broker status >/dev/null 2>&1; then
+      warn "muxa broker: not running — start with: muxa broker start"
+    fi
   fi
+}
 
-  warn "muxa-broker: missing next to $real — muxa send exits non-zero and pastes nothing; muxa who --json also fails. Update muxa (its installer ships the broker binary); do not build it here."
+ensure_muxa_hooks() {
+  local hook="$ROOT/scripts/muxa-hook.sh"
+  [[ -f "$hook" ]] || {
+    warn "muxa hooks: missing $hook (tracked scripts/muxa-hook.sh)"
+    return 0
+  }
+  chmod +x "$hook"
+  for cfg in .claude/settings.json .cursor/hooks.json; do
+    if [[ -f "$ROOT/$cfg" ]]; then
+      log "muxa hooks: $cfg"
+    else
+      warn "muxa hooks: missing $cfg"
+    fi
+  done
 }
 
 install_br() {
@@ -284,6 +281,7 @@ EOF
   fi
 
   copy_skills_to_harness
+  ensure_muxa_hooks
 }
 
 # Tracked source of truth is skills/. Agent CLIs discover project skills under

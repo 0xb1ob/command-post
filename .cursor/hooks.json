@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "scripts/muxa-hook.sh session-start --kind cursor",
+        "timeout": 10
+      }
+    ]
+  }
+}
