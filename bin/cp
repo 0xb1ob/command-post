@@ -57,12 +57,14 @@
 # gate: headless quality gate for a research artifact (no pane, no lease,
 # no mail). Extracts via artifact get (never br show — that inlines
 # comment bodies), reviews against templates/gate-rubric.md, records a
-# short gate:v1 comment. Policy (flag=yes → escalate; one revise max)
-# is enforced here, not in the prompt. Default reviewer is the cursor
-# agent CLI (--print --mode ask --output-format text --model
-# composer-2.5-fast); override the whole command with CP_GATE_CMD
-# (stdin → stdout). Exit 0=pass, 10=revise, 20=escalate; pass does not
-# close the issue or authorize implementation.
+# short gate:v1 comment. Stdout JSON always includes reasons; revisions
+# when verdict=revise. Bloated reasons/revisions are truncated (ellipsis)
+# so the JSON stays a few hundred words — never the artifact body.
+# Policy (flag=yes → escalate; one revise max) is enforced here, not in
+# the prompt. Default reviewer is the cursor agent CLI (--print --mode
+# ask --output-format text --model composer-2.5-fast); override the whole
+# command with CP_GATE_CMD (stdin → stdout). Exit 0=pass, 10=revise,
+# 20=escalate; pass does not close the issue or authorize implementation.
 #
 # Command-post home is this script's repo root (from the script location,
 # never $PWD), or CP_HOME if set.
@@ -135,6 +137,11 @@ usage_gate() {
   printf '  --model M     reviewer model (default: %s)\n' "$DEFAULT_GATE_MODEL" >&2
   printf '  CP_GATE_CMD   override reviewer command; reads prompt on stdin,\n' >&2
   printf '                writes a structured verdict on stdout\n' >&2
+  printf '\n' >&2
+  printf 'Stdout JSON: br_id, verdict, attempt, flags, reasons;\n' >&2
+  printf 'revisions when verdict=revise. Reasons/revisions are truncated\n' >&2
+  printf 'with an ellipsis if the JSON would exceed a few hundred words.\n' >&2
+  printf 'Never includes the artifact body.\n' >&2
   printf '\n' >&2
   printf 'Exit: 0 pass, 10 revise, 20 escalate; other nonzero is operational.\n' >&2
   printf 'A pass does NOT close the issue or authorize implementation —\n' >&2
@@ -1102,13 +1109,16 @@ if os.environ.get("GATE_PRIOR_REVISE") == "1" and verdict == "revise":
 attempt = int(os.environ["GATE_ATTEMPT"])
 br_id = os.environ["GATE_ID"]
 
-def bullets(items):
+def short_items(items):
     out = []
     for r in items:
         one = " ".join(str(r).split())
         if one:
-            out.append("- " + one)
+            out.append(one)
     return out
+
+def bullets(items):
+    return ["- " + x for x in short_items(items)]
 
 lines = [
     "gate:v1",
@@ -1128,13 +1138,66 @@ if verdict == "revise":
 with open(os.environ["GATE_COMMENT"], "w") as f:
     f.write("\n".join(lines) + "\n")
 
-with open(os.environ["GATE_JSON"], "w") as f:
-    json.dump({
+# Parent may read this JSON (verdicts are short). Cap so a bloated
+# reviewer cannot dump a wall of text — never the artifact body.
+JSON_WORD_CAP = 300
+
+def payload(rs, rvs):
+    o = {
         "br_id": br_id,
         "verdict": verdict,
         "attempt": attempt,
         "flags": norm,
-    }, f)
+        "reasons": rs,
+    }
+    if verdict == "revise":
+        o["revisions"] = rvs
+    return o
+
+def wc(rs, rvs):
+    return len(json.dumps(payload(rs, rvs)).split())
+
+def fit(items, measure):
+    if measure(items) <= JSON_WORD_CAP:
+        return list(items)
+    kept = []
+    for item in items:
+        if measure(kept + [item]) <= JSON_WORD_CAP:
+            kept.append(item)
+            continue
+        words = item.split()
+        chosen = None
+        for n in range(len(words), -1, -1):
+            trial = " ".join(words[:n] + ["..."]) if n else "..."
+            if measure(kept + [trial]) <= JSON_WORD_CAP:
+                chosen = trial
+                break
+        if chosen is not None:
+            kept.append(chosen)
+        elif not kept:
+            kept = ["..."]
+        elif not kept[-1].endswith("..."):
+            if measure(kept + ["..."]) <= JSON_WORD_CAP:
+                kept.append("...")
+            else:
+                lw = kept[-1].split()
+                for n in range(len(lw), -1, -1):
+                    trial = " ".join(lw[:n] + ["..."]) if n else "..."
+                    if measure(kept[:-1] + [trial]) <= JSON_WORD_CAP:
+                        kept[-1] = trial
+                        break
+        break
+    return kept
+
+rs = short_items(reasons)
+rvs = short_items(revisions) if verdict == "revise" else []
+if wc(rs, rvs) > JSON_WORD_CAP:
+    rs = fit(rs, lambda trial: wc(trial, []))
+    if verdict == "revise":
+        rvs = fit(rvs, lambda trial: wc(rs, trial))
+
+with open(os.environ["GATE_JSON"], "w") as f:
+    json.dump(payload(rs, rvs), f)
     f.write("\n")
 sys.stdout.write(verdict + "\n")
 '

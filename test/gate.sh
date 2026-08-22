@@ -147,9 +147,11 @@ assert d["br_id"] == os.environ["ID"]
 assert d["verdict"] == "pass"
 assert d["attempt"] == 1
 assert d["flags"] == {"destructive_scope": "no", "scope_growth": "no", "blocking_unknowns": "no"}
+assert d["reasons"] == ["complete and scored"]
+assert "revisions" not in d
 assert os.environ["TOKEN"] not in json.dumps(d)
 '; then
-  ok "pass prints {br_id, verdict, attempt, flags} JSON"
+  ok "pass prints {br_id, verdict, attempt, flags, reasons} JSON (no revisions)"
 else
   fail "pass prints JSON (got $out)"
 fi
@@ -198,10 +200,17 @@ if [[ "$rc" -eq 10 ]]; then
 else
   fail "revise exits 10 (got $rc out=$(printf %q "$out"))"
 fi
-if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="revise"; assert d["attempt"]==1'; then
-  ok "revise JSON is verdict=revise attempt=1"
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "revise"
+assert d["attempt"] == 1
+assert d["reasons"] == ["file list incomplete"]
+assert d["revisions"] == ["name every file"]
+'; then
+  ok "revise JSON includes reasons and revisions"
 else
-  fail "revise JSON is verdict=revise attempt=1 (got $out)"
+  fail "revise JSON includes reasons and revisions (got $out)"
 fi
 comments="$(br --db "$DB" comments list "$ID2" --json)"
 if printf '%s\n' "$comments" | python3 -c '
@@ -226,10 +235,17 @@ if [[ "$rc" -eq 20 ]]; then
 else
   fail "second revise is escalate (attempt cap) exit 20 (got $rc out=$(printf %q "$out"))"
 fi
-if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="escalate"; assert d["attempt"]==2'; then
-  ok "capped run JSON is verdict=escalate attempt=2"
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "escalate"
+assert d["attempt"] == 2
+assert any("attempt cap" in r for r in d["reasons"])
+assert "revisions" not in d
+'; then
+  ok "capped run JSON is escalate with reasons, no revisions"
 else
-  fail "capped run JSON is verdict=escalate attempt=2 (got $out)"
+  fail "capped run JSON is escalate with reasons, no revisions (got $out)"
 fi
 comments="$(br --db "$DB" comments list "$ID2" --json)"
 if printf '%s\n' "$comments" | python3 -c '
@@ -261,10 +277,12 @@ d = json.load(sys.stdin)
 assert d["verdict"] == "escalate"
 assert d["flags"]["destructive_scope"] == "yes"
 assert d["attempt"] == 1
+assert any("flag forced escalate" in r for r in d["reasons"])
+assert "revisions" not in d
 '; then
-  ok "flag-forced JSON keeps the yes flag and attempt 1"
+  ok "flag-forced JSON keeps the yes flag, reasons, and no revisions"
 else
-  fail "flag-forced JSON keeps the yes flag and attempt 1 (got $out)"
+  fail "flag-forced JSON keeps the yes flag, reasons, and no revisions (got $out)"
 fi
 
 # malformed → retry → escalate
@@ -284,10 +302,57 @@ if [[ -f "$TMP/runs" ]] && [[ "$(wc -l < "$TMP/runs" | tr -d ' ')" -eq 2 ]]; the
 else
   fail "malformed output retries the reviewer once (runs=$(wc -l < "$TMP/runs" 2>/dev/null | tr -d ' '))"
 fi
-if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="escalate"; assert d["attempt"]==1'; then
-  ok "malformed escalate JSON is verdict=escalate attempt=1"
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "escalate"
+assert d["attempt"] == 1
+assert d["reasons"] == ["reviewer output unparseable after one retry"]
+assert "revisions" not in d
+'; then
+  ok "malformed escalate JSON includes reasons, no revisions"
 else
-  fail "malformed escalate JSON is verdict=escalate attempt=1 (got $out)"
+  fail "malformed escalate JSON includes reasons, no revisions (got $out)"
+fi
+
+# bloated reviewer text is truncated so stdout JSON stays a few hundred words
+BLOATED_REASON="$(python3 -c 'print(" ".join("word%d" % i for i in range(400)))')"
+BLOATED_REV="$(python3 -c 'print(" ".join("rev%d" % i for i in range(200)))')"
+write_stub "$TMP/bloated.sh" "verdict: revise
+reasons:
+- ${BLOATED_REASON}
+flags:
+destructive_scope: no
+scope_growth: no
+blocking_unknowns: no
+revisions:
+- ${BLOATED_REV}"
+ID_BLOB="$(br --db "$DB" create "gate-bloat" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID_BLOB" "$TMP/src.md" >/dev/null
+export CP_GATE_CMD="$TMP/bloated.sh"
+rc=0
+out="$("$CP" gate "$ID_BLOB")" || rc=$?
+if [[ "$rc" -eq 10 ]]; then
+  ok "bloated revise still exits 10"
+else
+  fail "bloated revise still exits 10 (got $rc out=$(printf %q "$out"))"
+fi
+if printf '%s\n' "$out" | TOKEN="$TOKEN" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "revise"
+assert isinstance(d.get("reasons"), list) and d["reasons"]
+assert isinstance(d.get("revisions"), list) and d["revisions"]
+blob = json.dumps(d)
+assert len(blob.split()) <= 300
+assert "..." in blob
+assert "word399" not in blob
+assert "rev199" not in blob
+assert os.environ["TOKEN"] not in blob
+'; then
+  ok "bloated revise JSON truncates reasons/revisions under the word cap"
+else
+  fail "bloated revise JSON truncates reasons/revisions under the word cap (got $out)"
 fi
 
 # --model is accepted (stub ignores it); usage
@@ -302,6 +367,11 @@ if printf '%s\n' "$help" | grep -q 'does NOT close the issue or authorize implem
   ok "help states pass does not close or authorize implementation"
 else
   fail "help states pass does not close or authorize implementation"
+fi
+if printf '%s\n' "$help" | grep -q 'revisions when verdict=revise' && printf '%s\n' "$help" | grep -q 'ellipsis'; then
+  ok "help documents reasons/revisions on stdout and truncation"
+else
+  fail "help documents reasons/revisions on stdout and truncation"
 fi
 
 if [[ "$failed" -ne 0 ]]; then
