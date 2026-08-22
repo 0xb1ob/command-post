@@ -2,6 +2,7 @@
 data/
 projects/
 .beads/
+.lavish/
 
 # Runtime jobs map (state/jobs.tsv) / secrets
 state/
