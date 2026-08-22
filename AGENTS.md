@@ -172,7 +172,7 @@ Do not reimplement `muxa dispatch`.
    on that path, **promote** it with `muxa send` — do not dispatch a duplicate.
    `muxa dispatch --cwd` warns when that path is occupied; treat the warning as
    promote-not-spawn. `bin/cp check` fail-closes the same policy from
-   `muxa who --json`.
+   `muxa who --json` (`state=idle|busy|ghost`; mapping in `bin/cp check_occupancy`).
 2. **Canonical clone.** The lease source is `projects/<name>` (the Path column
    in `data/projects.md`). One clone path per project. Extra checkouts
    (`~/command-post`, …) are not lease sources.
