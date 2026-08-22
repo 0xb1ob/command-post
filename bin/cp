@@ -3,9 +3,17 @@
 #
 #   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
 #   bin/cp jobs add|set|done|list ...
+#   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
+#                   [--task-file FILE] [-- CMD...]
+#   bin/cp teardown ID
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
+# dispatch / teardown: mechanize the pre-dispatch checklist and teardown.
+# They wrap muxa, treehouse, and git. They do not call tmux and do not
+# reimplement muxa dispatch (they call it). state=dispatched means the
+# brief is queued, not received. Never-ready ([muxa] from=broker) is the
+# orchestrator's job — these commands do not retry.
 #
 # Exit:
 #   0  ok
@@ -37,9 +45,11 @@
 # that CLI required them). State: $CP_HOME/state/jobs.tsv (gitignored).
 # Does not call tmux; pane facts stay on muxa who --json / dispatch stdout.
 #
-# Command-post home is this script's repo root, or CP_HOME if set.
-# Test overrides (not for dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
-# BR_SHOW_CMD, CP_JOBS_FILE.
+# Command-post home is this script's repo root (from the script location,
+# never $PWD), or CP_HOME if set.
+# Test overrides (not for live dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
+# BR_SHOW_CMD, CP_JOBS_FILE. dispatch/teardown call muxa and treehouse on
+# PATH so tests can shim them.
 set -euo pipefail
 
 PROG="${BASH_SOURCE[0]}"
@@ -49,7 +59,22 @@ CP_HOME="${CP_HOME:-$ROOT}"
 usage() {
   printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
   printf '       %s jobs add|set|done|list ...\n' "$PROG" >&2
+  printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
+  printf '       %s teardown ID\n' "$PROG" >&2
   exit 2
+}
+
+usage_dispatch() {
+  printf 'usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
+  printf '       default CMD: agent --model composer-2.5-fast\n' >&2
+  printf '       stdout: one JSON object {br_id,worker,worktree,branch,state,receipt}\n' >&2
+  printf '       state=dispatched means the brief is queued, not received.\n' >&2
+  printf '       receipt=unconfirmed with state=dispatched is a valid success — wait for mail; never re-dispatch.\n' >&2
+}
+
+usage_teardown() {
+  printf 'usage: %s teardown ID\n' "$PROG" >&2
+  printf '       fail-closed: dirty or unpushed keeps the lease. Does not close the br issue.\n' >&2
 }
 
 usage_jobs() {
@@ -713,6 +738,478 @@ cmd_jobs() {
   esac
 }
 
+require_treehouse() {
+  if ! command -v treehouse >/dev/null 2>&1; then
+    printf '[cp] error: treehouse not on PATH — run bin/install.sh\n' >&2
+    exit 2
+  fi
+}
+
+require_muxa_bin() {
+  if ! command -v muxa >/dev/null 2>&1; then
+    printf '[cp] error: muxa not on PATH — run bin/install.sh\n' >&2
+    exit 2
+  fi
+}
+
+list_clone_worktrees() {
+  local clone="$1"
+  git -C "$clone" worktree list --porcelain 2>/dev/null \
+    | awk '/^worktree /{ sub(/^worktree /, ""); print }'
+}
+
+# Promote-not-spawn before a new lease: any idle|busy worker whose cwd is a
+# worktree of this project's clone (shared with check_occupancy).
+check_project_occupancy() {
+  local clone="$1"
+  local -a existing=()
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    existing+=("$line")
+  done < <(list_clone_worktrees "$clone")
+  if [[ ${#existing[@]} -eq 0 ]]; then
+    die "clone $clone has no worktrees — git worktree list failed; fix the clone"
+  fi
+  check_occupancy "${existing[@]}"
+}
+
+treehouse_get_lease() {
+  local clone="$1" path
+  require_treehouse
+  path="$( (cd "$clone" && treehouse get --lease) )" \
+    || die "treehouse get --lease failed in $clone — register the canonical clone and retry"
+  path="${path//$'\r'/}"
+  path="$(printf '%s\n' "$path" | awk 'NF{p=$0} END{print p}')"
+  [[ -n "$path" ]] || die "treehouse get --lease printed no path — expect the absolute worktree on stdout"
+  [[ -d "$path" ]] || die "treehouse get --lease printed $path which is not a directory — check the clone registration"
+  normalize_path "$path"
+}
+
+treehouse_return_force() {
+  local wt="$1"
+  local home_abs wt_abs
+  require_treehouse
+  home_abs="$(cd "$CP_HOME" && pwd -P)"
+  wt_abs="$(normalize_path "$wt")"
+  if [[ "$home_abs" == "$wt_abs" ]]; then
+    die "refuse treehouse return: worktree is the command-post HOME $home_abs — teardown must run from outside the worktree"
+  fi
+  case "$home_abs" in
+    "$wt_abs"/*)
+      die "refuse treehouse return: command-post HOME $home_abs is inside worktree $wt_abs — teardown must run from outside the worktree"
+      ;;
+  esac
+  # Always invoke from HOME so a worker cwd cannot kill its own shell.
+  (cd "$home_abs" && treehouse return --force "$wt") \
+    || die "treehouse return --force failed for $wt — lease may still be held; retry from $home_abs"
+}
+
+create_job_branch() {
+  local wt="$1" branch="$2" clone="$3"
+  local base
+  if ! git -C "$wt" fetch origin >&2; then
+    die "git fetch origin failed in $wt — add a reachable origin remote, then retry"
+  fi
+  base="$(default_base_branch "$clone")"
+  if git -C "$wt" rev-parse --verify --quiet "origin/$base" >/dev/null; then
+    :
+  else
+    die "origin/$base is missing after fetch — set origin/HEAD or pass a default branch that exists on origin"
+  fi
+  # --no-track: do not set @{u} to origin/<default>. Teardown treats
+  # origin/$branch (or a later push -u) as the pushed tip.
+  if git -C "$wt" switch --no-track -c "$branch" "origin/$base" >&2; then
+    return 0
+  fi
+  if git -C "$wt" checkout --no-track -b "$branch" "origin/$base" >&2; then
+    return 0
+  fi
+  die "cannot create branch $branch at origin/$base — pick a new --br-id or remove the leftover branch"
+}
+
+default_brief_body() {
+  # Verbatim AGENTS.md First brief body, with placeholders.
+  cat <<'EOF'
+Use the muxa-worker skill.
+
+You are a muxa worker. Parent: {{PARENT}}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
+
+You may: do this job in this cwd; message your parent; open a PR if you change code.
+You may not: cd or prefix commands with cd <path> (spawn already set cwd); message siblings or other roots; spawn extra workers; poll for mail — incoming mail arrives as a user turn; ack or narrate; pass CLI trust/yolo/workspace flags.
+
+When done: open a PR if there are code changes (skip if research-only). Never run treehouse return — teardown is mine, from outside the worktree. Verify fail-closed that git status --porcelain is empty AND the branch is pushed, then muxa send {{PARENT}} the result (include the PR URL) and stop. Dirty or unpushed: keep the lease and report a blocker with the path. Never ack. Then stop.
+
+Branch: {{BRANCH}}
+
+Job:
+{{TASK}}
+EOF
+}
+
+load_brief_template() {
+  local tname="$1" path
+  if [[ -z "$tname" ]]; then
+    default_brief_body
+    return 0
+  fi
+  if [[ ! "$tname" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    die "invalid --template $tname (use a slug; file is templates/brief-<TNAME>.md)"
+  fi
+  path="$CP_HOME/templates/brief-$tname.md"
+  [[ -f "$path" ]] || die "template not at $path — a sibling job owns templates/; omit --template to use the built-in default"
+  cat "$path"
+}
+
+substitute_brief() {
+  local src="$1" dest="$2" task_file="$3"
+  local parent="$4" branch="$5" br_id="$6" artifact="$7"
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed to assemble the brief)\n' >&2
+    exit 2
+  fi
+  PARENT="$parent" BRANCH="$branch" BR_ID="$br_id" ARTIFACT_PATH="$artifact" \
+    python3 - "$src" "$dest" "$task_file" <<'PY'
+import os, re, sys
+src, dest, task_path = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(src, encoding="utf-8").read()
+task = ""
+if task_path:
+    task = open(task_path, encoding="utf-8").read()
+repl = {
+    "{{PARENT}}": os.environ.get("PARENT", ""),
+    "{{BRANCH}}": os.environ.get("BRANCH", ""),
+    "{{BR_ID}}": os.environ.get("BR_ID", ""),
+    "{{ARTIFACT_PATH}}": os.environ.get("ARTIFACT_PATH", ""),
+    "{{TASK}}": task,
+}
+for key, val in repl.items():
+    text = text.replace(key, val)
+left = re.findall(r"\{\{[^}]+\}\}", text)
+if left:
+    sys.stderr.write(
+        "[cp] error: placeholder %s left unsubstituted — use {{PARENT}}, {{BRANCH}}, {{BR_ID}}, {{ARTIFACT_PATH}}, {{TASK}}\n"
+        % left[0]
+    )
+    sys.exit(1)
+open(dest, "w", encoding="utf-8").write(text)
+PY
+}
+
+parse_dispatch_json() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for muxa dispatch JSON)\n' >&2
+    exit 2
+  fi
+  python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    obj = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: muxa dispatch stdout is not JSON (state=dispatched means queued, not received)\n")
+    sys.exit(2)
+if not isinstance(obj, dict):
+    sys.stderr.write("[cp] error: muxa dispatch stdout: expected a JSON object\n")
+    sys.exit(2)
+name = obj.get("name") if obj.get("name") is not None else ""
+cwd = obj.get("cwd") if obj.get("cwd") is not None else ""
+state = obj.get("state") if obj.get("state") is not None else ""
+if str(name) == "":
+    sys.stderr.write("[cp] error: muxa dispatch JSON missing name\n")
+    sys.exit(1)
+if "\t" in str(name) or "\n" in str(name) or "\t" in str(cwd) or "\n" in str(cwd) or "\t" in str(state) or "\n" in str(state):
+    sys.stderr.write("[cp] error: muxa dispatch JSON: field contains a tab or newline\n")
+    sys.exit(2)
+sys.stdout.write("%s\t%s\t%s\n" % (name, cwd, state))
+'
+}
+
+emit_dispatch_json() {
+  local br_id="$1" worker="$2" worktree="$3" branch="$4" state="$5" receipt="$6"
+  python3 -c '
+import json, sys
+json.dump({
+    "br_id": sys.argv[1],
+    "worker": sys.argv[2],
+    "worktree": sys.argv[3],
+    "branch": sys.argv[4],
+    "state": sys.argv[5],
+    "receipt": sys.argv[6],
+}, sys.stdout)
+print()
+' "$br_id" "$worker" "$worktree" "$branch" "$state" "$receipt"
+}
+
+muxa_whoami_name() {
+  local self="${MUXA_WHOAMI:-}"
+  if [[ -z "$self" ]]; then
+    require_muxa_bin
+    self="$(muxa whoami 2>/dev/null || true)"
+  fi
+  [[ -n "$self" ]] || die "muxa whoami is empty — register this pane (muxa hook / muxa register), then retry"
+  printf '%s\n' "$self"
+}
+
+worker_in_who() {
+  local want="$1" line name state cwd
+  local -a who_cmd
+  if [[ -n "${MUXA_WHO_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    who_cmd=($MUXA_WHO_CMD)
+  else
+    require_muxa_bin
+    who_cmd=(muxa who --json)
+  fi
+  local who_out parsed
+  if ! who_out="$("${who_cmd[@]}")"; then
+    printf '[cp] error: muxa who --json failed\n' >&2
+    exit 2
+  fi
+  if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
+    exit 2
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    IFS=$'\t' read -r name state cwd _ <<< "$line"
+    if [[ "$name" == "$want" ]]; then
+      return 0
+    fi
+  done <<< "$parsed"
+  return 1
+}
+
+assert_clean_and_pushed() {
+  local wt="$1" branch="$2"
+  local dirty local_rev remote_rev upstream
+  dirty="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
+  if [[ -n "$dirty" ]]; then
+    printf '[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
+    exit 1
+  fi
+  local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
+  [[ -n "$local_rev" ]] || die "cannot read HEAD in $wt — keep the lease"
+  # Spec is OR: matching @{u} or matching origin/$branch is pushed.
+  if git -C "$wt" rev-parse --verify --quiet "origin/$branch" >/dev/null; then
+    remote_rev="$(git -C "$wt" rev-parse "origin/$branch")"
+    if [[ "$local_rev" == "$remote_rev" ]]; then
+      return 0
+    fi
+  fi
+  if upstream="$(git -C "$wt" rev-parse --abbrev-ref --verify '@{u}' 2>/dev/null)"; then
+    remote_rev="$(git -C "$wt" rev-parse '@{u}')"
+    if [[ "$local_rev" == "$remote_rev" ]]; then
+      return 0
+    fi
+    printf '[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
+      "$wt" "$branch" "${local_rev:0:12}" "$upstream" >&2
+    exit 1
+  fi
+  if git -C "$wt" rev-parse --verify --quiet "origin/$branch" >/dev/null; then
+    printf '[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
+      "$wt" "$branch" "$branch" >&2
+    exit 1
+  fi
+  printf '[cp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n' \
+    "$wt" "$branch" >&2
+  exit 1
+}
+
+cmd_dispatch() {
+  local project="" br_id="" alias="" template="" task_file=""
+  local -a agent_cmd=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ $# -ge 2 ]] || die_usage "--project needs NAME"
+        project="$2"
+        shift 2
+        ;;
+      --br-id)
+        [[ $# -ge 2 ]] || die_usage "--br-id needs ID"
+        br_id="$2"
+        shift 2
+        ;;
+      --name)
+        [[ $# -ge 2 ]] || die_usage "--name needs ALIAS"
+        alias="$2"
+        shift 2
+        ;;
+      --template)
+        [[ $# -ge 2 ]] || die_usage "--template needs TNAME"
+        template="$2"
+        shift 2
+        ;;
+      --task-file)
+        [[ $# -ge 2 ]] || die_usage "--task-file needs FILE"
+        task_file="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage_dispatch
+        exit 2
+        ;;
+      --)
+        shift
+        agent_cmd+=("$@")
+        break
+        ;;
+      -*)
+        die_usage "unknown flag $1"
+        ;;
+      *)
+        die_usage "unexpected arg $1 (command after -- )"
+        ;;
+    esac
+  done
+
+  [[ -n "$project" ]] || die_usage "missing --project NAME"
+  [[ -n "$br_id" ]] || die_usage "missing --br-id ID"
+  validate_job_id "$br_id"
+  if [[ -n "$task_file" && ! -f "$task_file" ]]; then
+    die "--task-file $task_file is not a file — pass a readable path"
+  fi
+  if [[ ${#agent_cmd[@]} -eq 0 ]]; then
+    agent_cmd=(agent --model composer-2.5-fast)
+  fi
+
+  local clone wt branch parent artifact brief_src brief_out parsed
+  local worker json_cwd json_state receipt
+  # Trap state must be global: EXIT runs after this function's locals are gone.
+  DISPATCH_KEEP_LEASE=0
+  DISPATCH_LEASED_WT=""
+  clone="$(assert_canonical_clone "$project")" || exit $?
+
+  require_muxa
+  if ! check_project_occupancy "$clone" >&2; then
+    exit 1
+  fi
+
+  wt="$(treehouse_get_lease "$clone")"
+  DISPATCH_LEASED_WT="$wt"
+  cleanup_lease() {
+    if [[ "${DISPATCH_KEEP_LEASE:-0}" -eq 0 && -n "${DISPATCH_LEASED_WT:-}" ]]; then
+      # Do not die() from EXIT — a failed return must not re-enter this trap.
+      if command -v treehouse >/dev/null 2>&1; then
+        home_abs="$(cd "$CP_HOME" && pwd -P)"
+        (cd "$home_abs" && treehouse return --force "$DISPATCH_LEASED_WT") >&2 \
+          || printf '[cp] error: treehouse return --force failed for %s during cleanup — lease may still be held\n' "$DISPATCH_LEASED_WT" >&2
+      fi
+    fi
+  }
+  trap cleanup_lease EXIT
+
+  if ! create_job_branch "$wt" "$br_id" "$clone"; then
+    exit 1
+  fi
+  branch="$br_id"
+
+  if ! "$PROG" check --project "$project" "$wt" >&2; then
+    die "bin/cp check failed for $wt — returned the lease; fix the precheck, then retry"
+  fi
+
+  parent="$(muxa_whoami_name)"
+  artifact="$CP_HOME/state/artifacts/${br_id}/report.md"
+  if [[ "$artifact" != /* ]]; then
+    artifact="$(cd "$CP_HOME" && pwd)/state/artifacts/${br_id}/report.md"
+  fi
+
+  brief_src="$(mktemp)"
+  brief_out="$(mktemp)"
+  load_brief_template "$template" > "$brief_src"
+  if ! substitute_brief "$brief_src" "$brief_out" "$task_file" "$parent" "$branch" "$br_id" "$artifact"; then
+    rm -f "$brief_src" "$brief_out"
+    die "brief assembly failed — fix the template placeholders, then retry"
+  fi
+  rm -f "$brief_src"
+
+  require_muxa_bin
+  local -a dispatch_cmd
+  dispatch_cmd=(muxa dispatch)
+  if [[ -n "$alias" ]]; then
+    dispatch_cmd+=(--name "$alias")
+  fi
+  dispatch_cmd+=(--cwd "$wt" --brief-file "$brief_out" --)
+  dispatch_cmd+=("${agent_cmd[@]}")
+
+  local out
+  if ! out="$("${dispatch_cmd[@]}")"; then
+    rm -f "$brief_out"
+    die "muxa dispatch failed — returned the lease; do not retry from this command (never-ready is orchestrator mail)"
+  fi
+  rm -f "$brief_out"
+  # Exit 0: the pane exists and the brief is queued. Never return the lease
+  # from here — even if JSON parse or jobs add fails.
+  DISPATCH_KEEP_LEASE=1
+
+  if ! parsed="$(printf '%s\n' "$out" | parse_dispatch_json)"; then
+    exit $?
+  fi
+  IFS=$'\t' read -r worker json_cwd json_state _ <<< "$parsed"
+
+  local json_cwd_norm="$json_cwd"
+  if [[ -d "$json_cwd" ]]; then
+    json_cwd_norm="$(normalize_path "$json_cwd")"
+  fi
+  if [[ "$json_cwd_norm" != "$wt" ]]; then
+    die "muxa dispatch cwd $json_cwd != leased worktree $wt — do not retype paths; occupancy may be live (worker $worker)"
+  fi
+
+  jobs_add "$br_id" "worker=$worker" "worktree=$wt" "branch=$branch" >&2
+
+  receipt="unconfirmed"
+  local tail_out="" tail_rc=0
+  tail_out="$(muxa tail "$worker")" || tail_rc=$?
+  if [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "Branch: $branch"; then
+    receipt="confirmed"
+  fi
+
+  [[ -n "$json_state" ]] || json_state="dispatched"
+  trap - EXIT
+  emit_dispatch_json "$br_id" "$worker" "$wt" "$branch" "$json_state" "$receipt"
+}
+
+cmd_teardown() {
+  local id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage_teardown
+        exit 2
+        ;;
+      -*)
+        die_usage "unknown flag $1"
+        ;;
+      *)
+        [[ -z "$id" ]] || die_usage "teardown takes one ID"
+        id="$1"
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$id" ]] || die_usage "teardown needs ID"
+  validate_job_id "$id"
+
+  local row job worker worktree branch
+  row="$(jobs_lookup "$id")" || die "no runtime row for $id — nothing to tear down (bin/cp jobs list)"
+  IFS=$'\t' read -r job worker worktree branch _ <<< "$row"
+  [[ -n "$worktree" ]] || die "runtime row $id has an empty worktree — keep the lease; fix bin/cp jobs"
+  [[ -n "$worker" ]] || die "runtime row $id has an empty worker — keep the lease; fix bin/cp jobs"
+  [[ -n "$branch" ]] || die "runtime row $id has an empty branch — keep the lease; fix bin/cp jobs"
+  [[ -d "$worktree" ]] || die "worktree $worktree is missing — keep the lease; restore the path or fix the jobs row"
+
+  assert_clean_and_pushed "$worktree" "$branch"
+  treehouse_return_force "$worktree"
+
+  if worker_in_who "$worker"; then
+    require_muxa_bin
+    muxa kill "$worker" || true
+  fi
+
+  jobs_done "$id" >&2
+}
+
 main() {
   [[ $# -gt 0 ]] || usage
   case "$1" in
@@ -724,11 +1221,19 @@ main() {
       shift
       cmd_jobs "$@"
       ;;
+    dispatch)
+      shift
+      cmd_dispatch "$@"
+      ;;
+    teardown)
+      shift
+      cmd_teardown "$@"
+      ;;
     -h|--help)
       usage
       ;;
     *)
-      die_usage "unknown command $1 (want: check or jobs)"
+      die_usage "unknown command $1 (want: check, jobs, dispatch, or teardown)"
       ;;
   esac
 }
