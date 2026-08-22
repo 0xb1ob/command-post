@@ -237,7 +237,7 @@ else
   ok "happy path does not return the lease"
 fi
 
-# receipt unconfirmed is still success
+# receipt unconfirmed is still success (tail has neither Branch: nor bare branch)
 reset_logs
 # worktree is already on job-ok; create a fresh detached lease target
 git -C "$CLONE" worktree add --detach -q "$TMP/leased2" >/dev/null
@@ -252,6 +252,22 @@ if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); a
   ok "receipt=unconfirmed with state=dispatched is success"
 else
   fail "unconfirmed JSON (out=$out err=$(cat "$TMP/err.un"))"
+fi
+
+# cursor-style tail: pasted brief collapsed; footer shows bare branch
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-cur" >/dev/null
+LEASE_CUR="$(cd "$TMP/leased-cur" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CUR"
+printf '[Pasted text]\n~/path · job-cursor\n' > "$CP_TEST_TAIL"
+out="$("$CP" dispatch --project demo --br-id job-cursor --task-file "$TMP/task.txt" 2>"$TMP/err.cur")" || {
+  fail "cursor-footer dispatch (exit $? err=$(cat "$TMP/err.cur"))"
+  out=""
+}
+if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["receipt"]=="confirmed"; assert o["state"]=="dispatched"'; then
+  ok "cursor-style footer branch confirms receipt"
+else
+  fail "cursor-footer JSON (out=$out err=$(cat "$TMP/err.cur"))"
 fi
 
 # --name is passed through; custom CMD after --
