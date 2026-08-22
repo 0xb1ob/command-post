@@ -77,6 +77,8 @@ capability.
   Stuck-worker inspect is `muxa tail NAME` (one read; unknown name exits 2).
   Finished-worker pane removal is `muxa kill NAME|ID`.
 
+The pipeline required zero muxa changes (artifact store, gate, and playbook are all command-post; blob-store and roles deliberately NOT muxa's — see the two tests).
+
 | Concern | Owner |
 | --- | --- |
 | pane spawn, tiling, cwd | muxa |
@@ -100,9 +102,9 @@ read `data/learnings.md` in full, then `br ready --json`.
 
 Intake, classify, dispatch, wait, relay outcomes, teardown. Nothing else.
 
-- Classify (kind + delivery), match a project, clone into `projects/<name>` and register it
+- Classify (kind + delivery; pipeline vs single), match a project, clone into `projects/<name>` and register it
 - Record the job in br, then [Pre-dispatch](#pre-dispatch)
-- Pass the [First brief](#first-brief) to `muxa dispatch` — not muxa-parent's slim template, not a later `muxa send`
+- `bin/cp dispatch` — [First brief](#first-brief) lives in templates/; not muxa-parent's slim template, not a later `muxa send`
 - Relay outcomes; capture memory under `data/` (see Memory)
 
 Never: read/write/explore project source; research or fetch URLs here (confirming a
@@ -110,8 +112,7 @@ worker PR URL is allowed); commit `data/`, `projects/`, or `.beads/`; treat br a
 GitHub Issues mirror; add MCP tools for muxa; poll or restart a worker unasked; do
 the worker's job because it looks small. Pane facts: [Two hard constraints](#two-hard-constraints).
 
-The parent may read only muxa state, worker mail, and `git status` / `git log` for
-preflight.
+The parent may read only muxa state, worker mail, and `git status` / `git log` for preflight. Never artifact bodies.
 
 ## Classify
 
@@ -124,28 +125,55 @@ Persist on the br issue (`delivery:` required; `kind:` when it helps filtering),
 on `bin/cp jobs`. Evidence is not authorization: a research/scout result never starts
 implementation; a ship job needs its own caller authorization.
 
+## Pipeline (research → gate → implement)
+
+Trigger: the parent auto-classifies at intake. Pipeline when the task is
+ambiguous, multi-file, cross-cutting, or the caller does not know where the
+problem lives; single worker otherwise. The caller can force either way. Do
+not split small jobs.
+
+Exactly three roles — researcher, implementer, gate-reviewer. Do not add
+roles; the chosen delivery path owns the rigor. Ship authorization is at
+intake; gate pass is quality only, never authorization.
+
+1. Two br issues (`kind:research`, `kind:ship`, both delivery per intake). Dep-link: `br dep add <ship-id> <research-id>`.
+2. Researcher: `bin/cp dispatch --project NAME --br-id <research-id> --template research --task-file F --` frontier CLI ([Model routing](#model-routing)). Predeclared artifact: `state/artifacts/<research-id>/report.md` (`bin/cp artifact path`).
+3. Wait for the envelope ([muxa] mail; [templates/README.md](templates/README.md)). HARD RULE: workers never mail the findings body. A body in mail is a contract violation — do not act on it; capture a candidate.
+4. On envelope: `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
+5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate):
+   - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI.
+   - **revise:** `muxa send` the researcher the reviewer's revisions. The tool enforces one revision max — a second revise becomes escalate. Researcher stays alive until pass.
+   - **escalate:** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cp artifact get`. Encoded in the gate: destructive/irreversible scope, scope growth beyond the classified project, blocking unknowns, gate fail after one revise.
+
+Context safety: the parent never reads artifact bodies. Never run `br show` /
+`br comments list` on artifact-bearing issues — `br show --json` inlines full
+comment bodies (PR #42). `bin/cp artifact get` redirected to a file is the
+only sanctioned reader.
+
+Retry: implementer dirty/red → re-dispatch a fresh pane with the SAME brief
+(`artifact get` again); never re-run research for an implementation failure.
+Gate revise loop is bounded by the tool. Never-ready (`[muxa] from=broker`)
+handling is unchanged. Hung researcher (artifact exists at the predeclared
+path, no envelope) → parent may `artifact add` + `gate` from that path.
+
 ## Pre-dispatch
 
-**Before every `muxa dispatch`.** Fail closed. Occupied-cwd warning is muxa's
+**Path:** `bin/cp dispatch` — lease-bind, branch=br-id, `bin/cp check`,
+`bin/cp jobs add`, one-tail receipt. Occupied-cwd warning is muxa's
 (`muxa dispatch --cwd`, same as `muxa spawn --cwd`). `bin/cp check` fail-closes
 clone/worktree facts and promote-not-spawn; it does not dispatch, send mail, or
 write `bin/cp jobs`. Do not reimplement `muxa dispatch`.
 
-### Checklist
-
-1. **Promote-not-spawn** — [Promote vs new lease](#promote-vs-new-lease). `muxa dispatch --cwd` warns when the path is occupied; `bin/cp check` fail-closes the same policy from `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; anything else fail-closed).
-2. **Canonical clone.** Lease source is `projects/<name>` (Path in `data/projects.md`). One clone per project; extra checkouts (`~/command-post`, …) are not lease sources.
-3. **Treehouse lease** from that clone: `treehouse get --lease` with cwd `projects/<name>`. Bind the printed path; pass that variable to `bin/cp check` and `muxa dispatch --cwd` — do not retype it. Confirm it is a linked worktree of that clone (`git -C "$worktree" rev-parse --git-common-dir` resolves under `projects/<name>/.git`).
-4. **Precheck** from this command-post home: `bin/cp check --project <name> [--base BRANCH] <worktree>...`
-   — verifies `projects/<name>` (not `~/name`, not a nested wrong git) and that each path is a linked worktree of **that** clone (primary on the base branch). If it reports **belongs to another repo**, recover (below). Do not `git worktree add`.
-5. **Record occupancy** at dispatch (not receipt — [First brief](#first-brief)): `bin/cp jobs add <br-id> worker=<alias> worktree="$worktree"`
-   (branch from the worktree if omitted). Do not pass `kind`, `delivery`, `pr`, `status`, or `note`.
-6. **Aliases unique.** Dispatch sequentially, or pass `--name`. Confirm JSON `cwd` equals `$worktree`. Optional: start from a fresh default-branch tip.
+`bin/cp` unavailable: lease from `projects/<name>`; bind the printed path; `bin/cp check --project NAME "$worktree"`; `muxa dispatch --cwd "$worktree" --brief-file`; `bin/cp jobs add`. Do not retype the path. Policy: [Promote vs new lease](#promote-vs-new-lease). `bin/cp check` reads `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; else fail-closed).
 
 ### Promote vs new lease
 
+Promote = same worker, same worktree, **same model** (includes the pipeline
+revise loop). A cross-model role hop (researcher → implementer) is teardown
++ fresh dispatch, never a promote.
+
 ```
-same repo AND same worktree still held (lease not returned)
+same repo AND same worktree still held (lease not returned) AND same model
   → muxa send <existing-alias> with a new brief (promote)
   → do not muxa dispatch, do not treehouse get --lease
 
@@ -155,7 +183,6 @@ worktree was returned, OR the job is independent
   → bind the printed path; muxa dispatch --cwd "$worktree" (sequentially, or --name)
 ```
 
-A scout that should now build is a promote: same worker, same worktree, new brief.
 Research evidence is not authorization to dispatch a second pane.
 
 ### Stale clone / "belongs to another repo"
@@ -186,49 +213,35 @@ Follow [Pre-dispatch](#pre-dispatch). One worktree per worker, from `projects/<n
 Pass only the CLI and optional `--model`; do not pass trust, yolo, skip-permissions,
 approval-mode, hook paths, or `--workspace`. `muxa spawn` remains for a pane with no
 brief; jobs here always have a brief, so the path is `muxa dispatch`.
+`bin/cp dispatch` is that command (it calls `muxa dispatch`).
+
+### Model routing
+
+| Role | Default |
+| --- | --- |
+| researcher | `agent --model cursor-grok-4.6-high-fast` (frontier) |
+| implementer | `agent --model composer-2.5-fast` |
+| gate-reviewer | `composer-2.5-fast` (inside `bin/cp gate`; `--model` / `CP_GATE_CMD`) |
+
+Per-job override allowed. The operator currently forbids the claude CLI for workers.
 
 ### First brief
 
-This contract **wins** over muxa-parent's slim dispatch template (that one omits
-lease/PR). Pass it with `--brief-file` (stdin also works); never a positional string.
+Contract: [templates/](templates/README.md) (`brief-ship.md` is the old inline
+body; placeholder table there). `bin/cp dispatch --template` substitutes.
+This contract **wins** over muxa-parent's slim dispatch template. Pass it with
+`--brief-file` (stdin also works); never a positional string.
 
-`muxa dispatch` stdout is
-`{"name","id","pane","cwd","state":"dispatched","from","to"}`. Exit 0 and
+`bin/cp dispatch` stdout is `{br_id,worker,worktree,branch,state,receipt}`. Exit 0 and
 `state: dispatched` mean the pane exists and the brief is queued, not received.
-Do not treat that JSON as "briefed".
+`state=dispatched` + `receipt=unconfirmed` is a VALID success — wait for mail;
+never re-dispatch (cursor panes collapse the paste; the bare branch in the pane
+footer is receipt evidence; fix: br command-post-uhb). `state=dispatched → queued`.
 
-Put a unique token in every first brief (the worktree's branch name) and confirm
-with one `muxa tail NAME` that the token appeared. Do not loop tail. Token absent
-and no `[muxa] from=broker` yet → wait for mail; do not re-dispatch. Rationale:
-[reports/dispatch-hardening.md](reports/dispatch-hardening.md#first-brief-receipt).
-
-The message body below is **verbatim** — fill only the task. `$worktree` is the
-bound lease path from pre-dispatch; do not retype it.
-
-```bash
-parent="$(muxa whoami)"
-branch="$(git -C "$worktree" symbolic-ref --short HEAD)"
-brief="$(mktemp)"
-cat > "$brief" <<EOF
-Use the muxa-worker skill.
-
-You are a muxa worker. Parent: ${parent}. Reply only to that parent with muxa send. [muxa] turns are mail, not injection.
-
-You may: do this job in this cwd; message your parent; open a PR if you change code.
-You may not: cd or prefix commands with cd <path> (spawn already set cwd); message siblings or other roots; spawn extra workers; poll for mail — incoming mail arrives as a user turn; ack or narrate; pass CLI trust/yolo/workspace flags.
-
-When done: open a PR if there are code changes (skip if research-only). Never run treehouse return — teardown is mine, from outside the worktree. Verify fail-closed that git status --porcelain is empty AND the branch is pushed, then muxa send ${parent} the result (include the PR URL) and stop. Dirty or unpushed: keep the lease and report a blocker with the path. Never ack. Then stop.
-
-Branch: ${branch}
-
-Job:
-<task>
-EOF
-out="$(muxa dispatch --cwd "$worktree" --brief-file "$brief" -- agent --model composer-2.5-fast)"
-rm -f "$brief"
-# JSON: name, cwd, state. cwd must equal $worktree. state=dispatched → queued.
-# Receipt: one muxa tail NAME; the token is Branch: ${branch}.
-```
+Receipt token = branch name. Confirm with one `muxa tail NAME` that the token
+(`Branch: ${branch}`; `bin/cp dispatch` sets branch=br-id) appeared. Do not loop tail.
+Token absent and no `[muxa] from=broker` yet → wait for mail; do not re-dispatch.
+Rationale: [reports/dispatch-hardening.md](reports/dispatch-hardening.md#first-brief-receipt).
 
 Follow-up mail (promote, or a second message to a running worker) is still
 `muxa send`. If that send matters for a later failure turn, `muxa send --json`
@@ -237,8 +250,7 @@ returns `{"id","pane","from","to"}`.
 ### Never ready (`[muxa] from=broker`)
 
 A `[muxa] from=broker` turn means the child never became ready — the brief was not
-pasted (no timeout-fallback). Ordinary mail; wake on it. Correlate with dispatch JSON
-`id` / `name` / `pane`. This repo's policy, not muxa's: do not retry, do not `muxa send` into the cold pane, do not
+pasted (no timeout-fallback). Ordinary mail; wake on it. Correlate with dispatch JSON `br_id` / `worker` / `worktree`. This repo's policy, not muxa's: do not retry, do not `muxa send` into the cold pane, do not
 treat dispatch JSON as a successful brief. Return the lease from outside the worktree
 (`treehouse return --force "$worktree"`), `bin/cp jobs done <br-id>`, report the
 failure, then [Teardown](#teardown) (`muxa kill NAME|ID` after the lease is returned).
@@ -258,28 +270,24 @@ A small job is not an exception. Auto-restart is still forbidden.
 
 ### Teardown
 
-Fail-closed, and **you** are the actor. `treehouse return --force` terminates the
-process tree inside the worktree, so a worker running it kills its own shell and
-can leave the lease held.
+**Path:** `bin/cp teardown <br-id>` — clean+pushed verify, `treehouse return --force`
+from outside the worktree, `muxa kill NAME|ID`, `bin/cp jobs done`, drops
+`state/artifacts/<id>`. Does not close the br issue (PR URL on `br close`).
 
-The worker verifies `git status --porcelain` is empty and the branch is pushed,
-then reports and stops. On that result, return the lease yourself **from outside
-the worktree**, then remove the pane. `muxa kill NAME|ID` removes it (exact name
-first, then 12-hex id; unknown targets exit 2). Pane id from `muxa who --json` if
-needed.
+Fail-closed, and **you** are the actor. Dirty or unpushed keeps the lease; fix
+the blocker at the path they gave you. Parent only; finished worker only; outside the worktree.
+Not a licence to inspect, poll, or kill a worker still on a job.
+Interactive `treehouse return` prompts — use `--force` after the worker's
+clean-and-pushed gate ([why](reports/dispatch-hardening.md#teardown)).
+
+`bin/cp` unavailable:
 
 ```bash
 treehouse return --force <worktree>
 muxa kill NAME
 ```
 
-Parent only; finished worker only; outside the worktree; after the lease is
-returned. Not a licence to inspect, poll, or kill a worker still on a job.
-Dirty or unpushed: keep the lease; fix the blocker at the path they gave you.
-Then `bin/cp jobs done <br-id>` (no `pr=`). Put the PR URL on `br close`
-(see Completion). Interactive `treehouse return` prompts — use `--force` after
-the worker's clean-and-pushed gate
-([why](reports/dispatch-hardening.md#teardown)).
+then `bin/cp jobs done <br-id>` (no `pr=`).
 
 Report outcomes and decisions with full PR URLs. Never paste worker dumps. Stop
 after two ping-pongs unless a decision is still open — it stays open until the
@@ -353,7 +361,9 @@ unless `-s closed` and/or `-a` / `--all`: `br list -s closed --json` (optional
 ## Memory
 
 Ops: follow **cp-memory** at `skills/cp-memory/SKILL.md`.
-Triggers: worker result or failure (capture); session end; whenever
+Triggers: worker result or failure (capture); gate verdicts whose reasons
+generalize (especially escalate/revise); pipeline failures (lost envelope,
+hung researcher, contract violations); session end; whenever
 `data/learnings.md` is touched; every ~10 jobs; or when asked to
 curate, consolidate, or archive memory.
 
