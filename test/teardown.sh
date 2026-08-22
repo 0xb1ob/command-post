@@ -102,6 +102,18 @@ make_pushed_wt() {
   git -C "$dest" push -q -u origin "$branch"
 }
 
+# Mirror create_job_branch: push default, then --no-track cut (never-ready).
+make_never_ready_wt() {
+  local dest="$1" branch="$2" base="${3:-main}"
+  mkdir -p "$dest"
+  git -C "$dest" init -q -b "$base"
+  git -C "$dest" -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
+  git init -q --bare "$dest.origin.git"
+  git -C "$dest" remote add origin "$dest.origin.git"
+  git -C "$dest" push -q origin "$base"
+  git -C "$dest" switch --no-track -q -c "$branch" "origin/$base"
+}
+
 # unknown id
 expect_rc_msg 1 "no runtime row" "unknown job id is refused" \
   "$CP" teardown missing-id
@@ -142,6 +154,116 @@ if grep -q return "$CP_TEST_TH_LOG"; then
   fail "unpushed teardown does not return the lease"
 else
   ok "unpushed teardown does not return the lease"
+fi
+
+# never-ready: clean --no-track cut from origin/main, no origin/$branch, no @{u}
+WT_NEVER="$TMP/wt-never"
+make_never_ready_wt "$WT_NEVER" feat-never
+WT_NEVER="$(cd "$WT_NEVER" && pwd -P)"
+"$CP" jobs add job-never worker=cold-fox worktree="$WT_NEVER" branch=feat-never >/dev/null
+printf '[]\n' > "$CP_TEST_WHO"
+: > "$CP_TEST_TH_LOG"
+: > "$CP_TEST_KILL_LOG"
+if "$CP" teardown job-never >/dev/null 2>"$TMP/err.never"; then
+  ok "never-ready teardown exits 0"
+else
+  fail "never-ready teardown exits 0 (err=$(cat "$TMP/err.never"))"
+fi
+if grep -q "return --force $WT_NEVER" "$CP_TEST_TH_LOG"; then
+  ok "never-ready teardown returns the lease"
+else
+  fail "never-ready teardown returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
+fi
+if "$CP" jobs list --json | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert not any(r["job"]=="job-never" for r in rows)'; then
+  ok "never-ready teardown drops the jobs row"
+else
+  fail "never-ready teardown drops the jobs row"
+fi
+
+# never-ready refuse: extra commit on job branch
+WT_NEVER_UNPUSH="$TMP/wt-never-unpush"
+make_never_ready_wt "$WT_NEVER_UNPUSH" feat-never-unpush
+git -C "$WT_NEVER_UNPUSH" -c user.email=t@t -c user.name=t commit --allow-empty -q -m extra
+WT_NEVER_UNPUSH="$(cd "$WT_NEVER_UNPUSH" && pwd -P)"
+"$CP" jobs add job-never-unpush worker=warm-fox worktree="$WT_NEVER_UNPUSH" branch=feat-never-unpush >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed $WT_NEVER_UNPUSH" "never-ready with extra commit refuses teardown" \
+  "$CP" teardown job-never-unpush
+if grep -q return "$CP_TEST_TH_LOG"; then
+  fail "never-ready extra commit does not return the lease"
+else
+  ok "never-ready extra commit does not return the lease"
+fi
+if "$CP" jobs list --json | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert any(r["job"]=="job-never-unpush" for r in rows)'; then
+  ok "never-ready extra commit leaves the jobs row"
+else
+  fail "never-ready extra commit leaves the jobs row"
+fi
+
+# refuse pushed-then-reset: origin/$branch exists and mismatches
+WT_RESET="$TMP/wt-reset"
+make_never_ready_wt "$WT_RESET" feat-reset
+git -C "$WT_RESET" -c user.email=t@t -c user.name=t commit --allow-empty -q -m work
+git -C "$WT_RESET" push -q -u origin feat-reset
+git -C "$WT_RESET" reset --hard -q origin/main
+WT_RESET="$(cd "$WT_RESET" && pwd -P)"
+"$CP" jobs add job-reset worker=reset-fox worktree="$WT_RESET" branch=feat-reset >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed $WT_RESET" "pushed-then-reset refuses teardown" \
+  "$CP" teardown job-reset
+if grep -q return "$CP_TEST_TH_LOG"; then
+  fail "pushed-then-reset does not return the lease"
+else
+  ok "pushed-then-reset does not return the lease"
+fi
+
+# refuse detached HEAD at default while branch has unique commits
+WT_DETACH="$TMP/wt-detach"
+make_never_ready_wt "$WT_DETACH" feat-detach
+git -C "$WT_DETACH" -c user.email=t@t -c user.name=t commit --allow-empty -q -m extra
+git -C "$WT_DETACH" checkout --detach -q origin/main
+WT_DETACH="$(cd "$WT_DETACH" && pwd -P)"
+"$CP" jobs add job-detach worker=detach-fox worktree="$WT_DETACH" branch=feat-detach >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed $WT_DETACH" "detached at default with branch commits refuses teardown" \
+  "$CP" teardown job-detach
+if grep -q return "$CP_TEST_TH_LOG"; then
+  fail "detached default does not return the lease"
+else
+  ok "detached default does not return the lease"
+fi
+
+# refuse tip equal to other ref, not origin/main
+WT_OTHER="$TMP/wt-other"
+make_never_ready_wt "$WT_OTHER" feat-other
+git -C "$WT_OTHER" -c user.email=t@t -c user.name=t checkout -q -b develop
+git -C "$WT_OTHER" -c user.email=t@t -c user.name=t commit --allow-empty -q -m on-develop
+git -C "$WT_OTHER" push -q origin develop
+git -C "$WT_OTHER" switch --no-track -q -c feat-other-tip origin/develop
+WT_OTHER="$(cd "$WT_OTHER" && pwd -P)"
+"$CP" jobs add job-other worker=other-fox worktree="$WT_OTHER" branch=feat-other-tip >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed $WT_OTHER" "tip at non-default origin ref refuses teardown" \
+  "$CP" teardown job-other
+if grep -q return "$CP_TEST_TH_LOG"; then
+  fail "non-default tip does not return the lease"
+else
+  ok "non-default tip does not return the lease"
+fi
+
+# origin/HEAD -> master: never-ready cut from origin/master
+WT_MASTER="$TMP/wt-master"
+make_never_ready_wt "$WT_MASTER" feat-master master
+git -C "$WT_MASTER.origin.git" symbolic-ref HEAD refs/heads/master
+git -C "$WT_MASTER" fetch -q origin
+WT_MASTER="$(cd "$WT_MASTER" && pwd -P)"
+"$CP" jobs add job-master worker=master-fox worktree="$WT_MASTER" branch=feat-master >/dev/null
+printf '[]\n' > "$CP_TEST_WHO"
+: > "$CP_TEST_TH_LOG"
+if "$CP" teardown job-master >/dev/null 2>"$TMP/err.master"; then
+  ok "never-ready with origin/HEAD=master exits 0"
+else
+  fail "never-ready with origin/HEAD=master (err=$(cat "$TMP/err.master"))"
 fi
 
 # happy path: clean + pushed, return from HOME, kill if present, jobs done
