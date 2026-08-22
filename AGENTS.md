@@ -251,9 +251,9 @@ returns `{"id","pane","from","to"}`.
 
 A `[muxa] from=broker` turn means the child never became ready — the brief was not
 pasted (no timeout-fallback). Ordinary mail; wake on it. Correlate with dispatch JSON `br_id` / `worker` / `worktree`. This repo's policy, not muxa's: do not retry, do not `muxa send` into the cold pane, do not
-treat dispatch JSON as a successful brief. Return the lease from outside the worktree
-(`treehouse return --force "$worktree"`), `bin/cp jobs done <br-id>`, report the
-failure, then [Teardown](#teardown) (`muxa kill NAME|ID` after the lease is returned).
+treat dispatch JSON as a successful brief. From outside the worktree run
+`bin/cp teardown <br-id>` (branch still at the dispatch cut; no manual
+`treehouse return` / `jobs done` / `muxa kill` sequence) and report the failure.
 A small job is not an exception. Auto-restart is still forbidden.
 
 ### While they run

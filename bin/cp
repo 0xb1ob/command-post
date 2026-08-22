@@ -1575,7 +1575,7 @@ worker_in_who() {
 
 assert_clean_and_pushed() {
   local wt="$1" branch="$2"
-  local dirty local_rev remote_rev upstream
+  local dirty local_rev remote_rev upstream head_branch base
   dirty="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
   if [[ -n "$dirty" ]]; then
     printf '[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
@@ -1583,7 +1583,8 @@ assert_clean_and_pushed() {
   fi
   local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
   [[ -n "$local_rev" ]] || die "cannot read HEAD in $wt — keep the lease"
-  # Spec is OR: matching @{u} or matching origin/$branch is pushed.
+  # Spec is OR: matching @{u}, matching origin/$branch, or never-ready
+  # (tip equals origin/<default> with no upstream and no origin/$branch).
   if git -C "$wt" rev-parse --verify --quiet "origin/$branch" >/dev/null; then
     remote_rev="$(git -C "$wt" rev-parse "origin/$branch")"
     if [[ "$local_rev" == "$remote_rev" ]]; then
@@ -1603,6 +1604,16 @@ assert_clean_and_pushed() {
     printf '[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
       "$wt" "$branch" "$branch" >&2
     exit 1
+  fi
+  head_branch="$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [[ "$head_branch" == "$branch" ]]; then
+    base="$(default_base_branch "$wt")"
+    if git -C "$wt" rev-parse --verify --quiet "refs/remotes/origin/$base" >/dev/null; then
+      remote_rev="$(git -C "$wt" rev-parse "refs/remotes/origin/$base")"
+      if [[ "$local_rev" == "$remote_rev" ]]; then
+        return 0
+      fi
+    fi
   fi
   printf '[cp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n' \
     "$wt" "$branch" >&2
