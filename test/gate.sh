@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# Unit tests for bin/cp gate (isolated temp br db; reviewer stubbed via CP_GATE_CMD).
+# Run from the command-post repo: test/gate.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CP="$ROOT/bin/cp"
+failed=0
+n=0
+
+ok() {
+  n=$((n + 1))
+  printf 'ok %d - %s\n' "$n" "$1"
+}
+
+fail() {
+  n=$((n + 1))
+  failed=$((failed + 1))
+  printf 'not ok %d - %s\n' "$n" "$1"
+}
+
+expect_exit() {
+  local want="$1" label="$2"
+  shift 2
+  local rc=0
+  "$@" >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq "$want" ]]; then
+    ok "$label (exit $want)"
+  else
+    fail "$label (want exit $want, got $rc)"
+  fi
+}
+
+if ! command -v br >/dev/null 2>&1; then
+  printf 'br not on PATH (needed for gate tests)\n' >&2
+  exit 2
+fi
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-gate.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
+
+export CP_HOME="$TMP/home"
+mkdir -p "$CP_HOME"
+
+TOKEN="SECRET_BODY_TOKEN_gate_vet"
+printf 'Goal: test artifact\n%s\n' "$TOKEN" > "$TMP/src.md"
+
+write_stub() {
+  local path="$1" body="$2"
+  printf '%s\n' '#!/bin/sh' > "$path"
+  printf 'cat >"%s/last-prompt"\n' "$TMP" >> "$path"
+  printf 'echo x >>"%s/runs"\n' "$TMP" >> "$path"
+  printf '%s\n' "cat <<'V'" >> "$path"
+  printf '%s\n' "$body" >> "$path"
+  printf '%s\n' "V" >> "$path"
+  chmod +x "$path"
+}
+
+PASS_VERDICT='verdict: pass
+reasons:
+- complete and scored
+flags:
+destructive_scope: no
+scope_growth: no
+blocking_unknowns: no'
+
+REVISE_VERDICT='verdict: revise
+reasons:
+- file list incomplete
+flags:
+destructive_scope: no
+scope_growth: no
+blocking_unknowns: no
+revisions:
+- name every file'
+
+FLAG_VERDICT='verdict: pass
+reasons:
+- reviewer said pass
+flags:
+destructive_scope: yes
+scope_growth: no
+blocking_unknowns: no'
+
+write_stub "$TMP/pass.sh" "$PASS_VERDICT"
+write_stub "$TMP/revise.sh" "$REVISE_VERDICT"
+write_stub "$TMP/flag.sh" "$FLAG_VERDICT"
+printf '%s\n' '#!/bin/sh' > "$TMP/malformed.sh"
+printf 'cat >/dev/null\n' >> "$TMP/malformed.sh"
+printf 'echo x >>"%s/runs"\n' "$TMP" >> "$TMP/malformed.sh"
+printf 'echo "not a structured verdict"\n' >> "$TMP/malformed.sh"
+chmod +x "$TMP/malformed.sh"
+
+# missing artifact (no .beads yet, then with issue but no artifact:v1)
+expect_exit 1 "gate fails when HOME has no .beads" "$CP" gate t-one
+export CP_GATE_CMD="$TMP/pass.sh"
+expect_exit 1 "gate fails when HOME has no .beads even with stub" "$CP" gate t-one
+if [[ ! -e "$CP_HOME/.beads" ]]; then
+  ok "missing .beads does not auto-init a tracker"
+else
+  fail "missing .beads does not auto-init a tracker"
+fi
+if [[ ! -f "$TMP/runs" ]]; then
+  ok "reviewer is not invoked when HOME has no .beads"
+else
+  fail "reviewer is not invoked when HOME has no .beads"
+fi
+
+(
+  cd "$CP_HOME"
+  br init --prefix t >/dev/null
+)
+DB="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$CP_HOME/.beads/beads.db")"
+ID="$(br --db "$DB" create "gate-test" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+rm -f "$TMP/runs" "$TMP/last-prompt"
+export CP_GATE_CMD="$TMP/pass.sh"
+rc=0
+err="$("$CP" gate "$ID" 2>&1 >/dev/null)" || rc=$?
+if [[ "$rc" -eq 1 ]] && printf '%s\n' "$err" | grep -q 'cannot gate'; then
+  ok "missing artifact is fail-closed with a distinct message"
+else
+  fail "missing artifact is fail-closed with a distinct message (rc=$rc err=$(printf %q "$err"))"
+fi
+if [[ ! -f "$TMP/runs" ]]; then
+  ok "reviewer is not invoked when no artifact exists"
+else
+  fail "reviewer is not invoked when no artifact exists"
+fi
+
+"$CP" artifact add "$ID" "$TMP/src.md" >/dev/null
+
+# BR_SHOW_CMD would trip require_br_issue; gate must not call br show.
+export BR_SHOW_CMD=false
+rm -f "$TMP/runs" "$TMP/last-prompt"
+rc=0
+out="$("$CP" gate "$ID")" || rc=$?
+if [[ "$rc" -eq 0 ]]; then
+  ok "pass exits 0"
+else
+  fail "pass exits 0 (got $rc out=$(printf %q "$out"))"
+fi
+if printf '%s\n' "$out" | TOKEN="$TOKEN" ID="$ID" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+assert d["br_id"] == os.environ["ID"]
+assert d["verdict"] == "pass"
+assert d["attempt"] == 1
+assert d["flags"] == {"destructive_scope": "no", "scope_growth": "no", "blocking_unknowns": "no"}
+assert os.environ["TOKEN"] not in json.dumps(d)
+'; then
+  ok "pass prints {br_id, verdict, attempt, flags} JSON"
+else
+  fail "pass prints JSON (got $out)"
+fi
+if printf '%s\n' "$out" | grep -F -q "$TOKEN"; then
+  fail "pass stdout does not include the artifact body"
+else
+  ok "pass stdout does not include the artifact body"
+fi
+if [[ -f "$TMP/last-prompt" ]] && grep -q 'You are a fresh-context reviewer' "$TMP/last-prompt" && grep -F -q "$TOKEN" "$TMP/last-prompt"; then
+  ok "reviewer stdin is the rubric followed by the artifact"
+else
+  fail "reviewer stdin is the rubric followed by the artifact"
+fi
+if [[ -f "$TMP/runs" ]] && [[ "$(wc -l < "$TMP/runs" | tr -d ' ')" -eq 1 ]]; then
+  ok "pass invokes the reviewer once"
+else
+  fail "pass invokes the reviewer once"
+fi
+
+comments="$(br --db "$DB" comments list "$ID" --json)"
+if printf '%s\n' "$comments" | TOKEN="$TOKEN" python3 -c '
+import json, os, sys
+comments = json.load(sys.stdin)
+gates = [c for c in comments if isinstance(c, dict) and str(c.get("text","")).splitlines()[:1] == ["gate:v1"]]
+assert len(gates) == 1
+text = gates[0]["text"]
+assert "attempt: 1" in text
+assert "verdict: pass" in text
+assert os.environ["TOKEN"] not in text
+'; then
+  ok "pass records a short gate:v1 comment without the artifact body"
+else
+  fail "pass records a short gate:v1 comment without the artifact body"
+fi
+unset BR_SHOW_CMD
+
+# revise
+ID2="$(br --db "$DB" create "gate-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID2" "$TMP/src.md" >/dev/null
+export CP_GATE_CMD="$TMP/revise.sh"
+rm -f "$TMP/runs"
+rc=0
+out="$("$CP" gate "$ID2")" || rc=$?
+if [[ "$rc" -eq 10 ]]; then
+  ok "revise exits 10"
+else
+  fail "revise exits 10 (got $rc out=$(printf %q "$out"))"
+fi
+if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="revise"; assert d["attempt"]==1'; then
+  ok "revise JSON is verdict=revise attempt=1"
+else
+  fail "revise JSON is verdict=revise attempt=1 (got $out)"
+fi
+comments="$(br --db "$DB" comments list "$ID2" --json)"
+if printf '%s\n' "$comments" | python3 -c '
+import json, sys
+comments = json.load(sys.stdin)
+gates = [c for c in comments if str(c.get("text","")).splitlines()[:1] == ["gate:v1"]]
+assert len(gates) == 1
+assert "verdict: revise" in gates[0]["text"]
+assert "revisions:" in gates[0]["text"]
+'; then
+  ok "revise comment includes revisions"
+else
+  fail "revise comment includes revisions"
+fi
+
+# revise → revise becomes escalate (one-revision cap)
+rm -f "$TMP/runs"
+rc=0
+out="$("$CP" gate "$ID2")" || rc=$?
+if [[ "$rc" -eq 20 ]]; then
+  ok "second revise is escalate (attempt cap) exit 20"
+else
+  fail "second revise is escalate (attempt cap) exit 20 (got $rc out=$(printf %q "$out"))"
+fi
+if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="escalate"; assert d["attempt"]==2'; then
+  ok "capped run JSON is verdict=escalate attempt=2"
+else
+  fail "capped run JSON is verdict=escalate attempt=2 (got $out)"
+fi
+comments="$(br --db "$DB" comments list "$ID2" --json)"
+if printf '%s\n' "$comments" | python3 -c '
+import json, sys
+comments = json.load(sys.stdin)
+gates = [c["text"] for c in comments if str(c.get("text","")).splitlines()[:1] == ["gate:v1"]]
+assert len(gates) == 2
+assert any("attempt cap" in t for t in gates)
+'; then
+  ok "capped escalate records the attempt-cap reason"
+else
+  fail "capped escalate records the attempt-cap reason"
+fi
+
+# flag forces escalate even when reviewer said pass
+ID3="$(br --db "$DB" create "gate-flag" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID3" "$TMP/src.md" >/dev/null
+export CP_GATE_CMD="$TMP/flag.sh"
+rc=0
+out="$("$CP" gate "$ID3")" || rc=$?
+if [[ "$rc" -eq 20 ]]; then
+  ok "flag=yes forces escalate exit 20"
+else
+  fail "flag=yes forces escalate exit 20 (got $rc out=$(printf %q "$out"))"
+fi
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "escalate"
+assert d["flags"]["destructive_scope"] == "yes"
+assert d["attempt"] == 1
+'; then
+  ok "flag-forced JSON keeps the yes flag and attempt 1"
+else
+  fail "flag-forced JSON keeps the yes flag and attempt 1 (got $out)"
+fi
+
+# malformed → retry → escalate
+ID4="$(br --db "$DB" create "gate-bad" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID4" "$TMP/src.md" >/dev/null
+export CP_GATE_CMD="$TMP/malformed.sh"
+rm -f "$TMP/runs"
+rc=0
+out="$("$CP" gate "$ID4")" || rc=$?
+if [[ "$rc" -eq 20 ]]; then
+  ok "malformed output retries then escalates exit 20"
+else
+  fail "malformed output retries then escalates exit 20 (got $rc out=$(printf %q "$out"))"
+fi
+if [[ -f "$TMP/runs" ]] && [[ "$(wc -l < "$TMP/runs" | tr -d ' ')" -eq 2 ]]; then
+  ok "malformed output retries the reviewer once"
+else
+  fail "malformed output retries the reviewer once (runs=$(wc -l < "$TMP/runs" 2>/dev/null | tr -d ' '))"
+fi
+if printf '%s\n' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["verdict"]=="escalate"; assert d["attempt"]==1'; then
+  ok "malformed escalate JSON is verdict=escalate attempt=1"
+else
+  fail "malformed escalate JSON is verdict=escalate attempt=1 (got $out)"
+fi
+
+# --model is accepted (stub ignores it); usage
+export CP_GATE_CMD="$TMP/pass.sh"
+ID5="$(br --db "$DB" create "gate-model" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID5" "$TMP/src.md" >/dev/null
+expect_exit 0 "gate --model is accepted" "$CP" gate "$ID5" --model composer-2.5-fast
+expect_exit 2 "gate without ID is usage" "$CP" gate
+expect_exit 2 "unknown flag is usage" "$CP" gate --nope "$ID"
+help="$("$CP" gate --help 2>&1)" || true
+if printf '%s\n' "$help" | grep -q 'does NOT close the issue or authorize implementation'; then
+  ok "help states pass does not close or authorize implementation"
+else
+  fail "help states pass does not close or authorize implementation"
+fi
+
+if [[ "$failed" -ne 0 ]]; then
+  printf '%d failed of %d\n' "$failed" "$n" >&2
+  exit 1
+fi
+printf '%d passed\n' "$n"

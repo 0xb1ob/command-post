@@ -4,6 +4,7 @@
 #   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
 #   bin/cp jobs add|set|done|list ...
 #   bin/cp artifact path|add|get ...
+#   bin/cp gate ID [--model M]
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
 #   bin/cp teardown ID
@@ -53,21 +54,34 @@
 # stripped. br always uses the home tracker (--db); fail-closed if
 # $CP_HOME has no .beads (do not init a second database from a worktree).
 #
+# gate: headless quality gate for a research artifact (no pane, no lease,
+# no mail). Extracts via artifact get (never br show — that inlines
+# comment bodies), reviews against templates/gate-rubric.md, records a
+# short gate:v1 comment. Policy (flag=yes → escalate; one revise max)
+# is enforced here, not in the prompt. Default reviewer is the cursor
+# agent CLI (--print --mode ask --output-format text --model
+# composer-2.5-fast); override the whole command with CP_GATE_CMD
+# (stdin → stdout). Exit 0=pass, 10=revise, 20=escalate; pass does not
+# close the issue or authorize implementation.
+#
 # Command-post home is this script's repo root (from the script location,
 # never $PWD), or CP_HOME if set.
 # Test overrides (not for live dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
-# BR_SHOW_CMD, BR_DB, CP_JOBS_FILE. dispatch/teardown call muxa and
-# treehouse on PATH so tests can shim them.
+# BR_SHOW_CMD, BR_DB, CP_JOBS_FILE, CP_GATE_CMD. dispatch/teardown call
+# muxa and treehouse on PATH so tests can shim them.
 set -euo pipefail
 
 PROG="${BASH_SOURCE[0]}"
 ROOT="$(cd "$(dirname "$PROG")/.." && pwd)"
 CP_HOME="${CP_HOME:-$ROOT}"
 
+DEFAULT_GATE_MODEL="composer-2.5-fast"
+
 usage() {
   printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
   printf '       %s jobs add|set|done|list ...\n' "$PROG" >&2
   printf '       %s artifact path|add|get ...\n' "$PROG" >&2
+  printf '       %s gate ID [--model M]\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       %s teardown ID\n' "$PROG" >&2
   exit 2
@@ -108,6 +122,28 @@ usage_artifact() {
 die_artifact_usage() {
   printf '[cp] error: %s\n' "$*" >&2
   usage_artifact
+  exit 2
+}
+
+usage_gate() {
+  printf 'usage: %s gate ID [--model M]\n' "$PROG" >&2
+  printf '\n' >&2
+  printf 'Headless quality gate (no pane, no lease, no mail).\n' >&2
+  printf 'Extracts the artifact with artifact get, reviews it against\n' >&2
+  printf 'templates/gate-rubric.md, records a gate:v1 comment.\n' >&2
+  printf '\n' >&2
+  printf '  --model M     reviewer model (default: %s)\n' "$DEFAULT_GATE_MODEL" >&2
+  printf '  CP_GATE_CMD   override reviewer command; reads prompt on stdin,\n' >&2
+  printf '                writes a structured verdict on stdout\n' >&2
+  printf '\n' >&2
+  printf 'Exit: 0 pass, 10 revise, 20 escalate; other nonzero is operational.\n' >&2
+  printf 'A pass does NOT close the issue or authorize implementation —\n' >&2
+  printf 'the orchestrator does that.\n' >&2
+}
+
+die_gate_usage() {
+  printf '[cp] error: %s\n' "$*" >&2
+  usage_gate
   exit 2
 }
 
@@ -903,6 +939,307 @@ cmd_artifact() {
   esac
 }
 
+# Prior gate:v1 comments → attempt number and whether a revise already exists.
+# Uses comments list, never br show (show inlines full bodies).
+gate_prior_state() {
+  local id="$1" db raw
+  db="$(resolve_beads_db)"
+  if ! raw="$(br --db "$db" comments list "$id" --json)"; then
+    return 1
+  fi
+  python3 -c '
+import json, re, sys
+raw = sys.stdin.read()
+try:
+    comments = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.exit(2)
+if not isinstance(comments, list):
+    sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
+    sys.exit(2)
+n = 0
+prior_revise = 0
+verdict_re = re.compile(r"(?i)^\s*verdict\s*:\s*revise\s*$")
+for c in comments:
+    if not isinstance(c, dict):
+        continue
+    text = c.get("text") if c.get("text") is not None else ""
+    if not isinstance(text, str) or not text:
+        continue
+    first = text.splitlines()[0]
+    if first != "gate:v1":
+        continue
+    n += 1
+    for line in text.splitlines():
+        if verdict_re.match(line):
+            prior_revise = 1
+            break
+sys.stdout.write("%d\t%d\n" % (n + 1, prior_revise))
+' <<< "$raw"
+}
+
+# Parse reviewer stdout into JSON. Exit 2 if unparseable.
+# Tolerance: surrounding prose; last valid field wins; case-insensitive
+# verdict/yes|no; optional **bold**; CRLF; trailing commentary on flag
+# lines. Template echoes like "pass|revise|escalate" or "yes|no" are rejected.
+parse_gate_verdict() {
+  python3 -c '
+import json, re, sys
+
+text = sys.stdin.read().replace("\r\n", "\n")
+if not text.strip():
+    sys.exit(2)
+
+header_re = re.compile(
+    r"(?i)^\s*(?:\*\*)?(verdict|reasons|flags|revisions|destructive_scope|scope_growth|blocking_unknowns)(?:\*\*)?\s*:\s*(.*)$"
+)
+
+def token(rest):
+    rest = rest.strip().strip("*").strip()
+    if not rest:
+        return ""
+    t = rest.split()[0].lower().rstrip(",;")
+    return t.strip("*")
+
+verdict = None
+flags = {}
+reasons = []
+revisions = []
+section = None
+
+for raw_line in text.splitlines():
+    line = raw_line.strip()
+    if line.startswith("```"):
+        continue
+    m = header_re.match(raw_line)
+    if m:
+        key = m.group(1).lower()
+        rest = m.group(2)
+        if key == "verdict":
+            v = token(rest)
+            if v in ("pass", "revise", "escalate"):
+                verdict = v
+            section = None
+            continue
+        if key in ("destructive_scope", "scope_growth", "blocking_unknowns"):
+            v = token(rest)
+            if v in ("yes", "no"):
+                flags[key] = v
+            section = None
+            continue
+        if key in ("reasons", "flags", "revisions"):
+            section = key
+            continue
+    if section in ("reasons", "revisions"):
+        bullet = raw_line.strip()
+        if bullet.startswith(("-", "*")):
+            item = bullet[1:].strip()
+            if item:
+                (reasons if section == "reasons" else revisions).append(item)
+
+need = ("destructive_scope", "scope_growth", "blocking_unknowns")
+if verdict is None or any(k not in flags for k in need):
+    sys.exit(2)
+
+json.dump({
+    "verdict": verdict,
+    "reasons": reasons,
+    "flags": {k: flags[k] for k in need},
+    "revisions": revisions,
+}, sys.stdout)
+print()
+'
+}
+
+run_gate_reviewer() {
+  local prompt_file="$1" model="$2" out_file="$3"
+  if [[ -n "${CP_GATE_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    local -a cmd=($CP_GATE_CMD)
+    "${cmd[@]}" < "$prompt_file" > "$out_file"
+    return $?
+  fi
+  if ! command -v agent >/dev/null 2>&1; then
+    printf '[cp] error: agent not on PATH (set CP_GATE_CMD to override the reviewer)\n' >&2
+    exit 2
+  fi
+  # Headless cursor agent: --print is non-interactive; --mode ask is
+  # read-only (the rubric forbids repo access); text so we parse prose.
+  # Prompt is the positional argument — the CLI does not document stdin
+  # as the prompt. Do not pass --trust / --yolo / --workspace.
+  agent --print --mode ask --output-format text --model "$model" -- "$(cat "$prompt_file")" > "$out_file"
+}
+
+apply_gate_policy() {
+  python3 -c '
+import json, os, sys
+
+d = json.load(sys.stdin)
+verdict = d.get("verdict")
+flags = d.get("flags") or {}
+reasons = [str(x) for x in (d.get("reasons") or [])]
+revisions = [str(x) for x in (d.get("revisions") or [])]
+need = ("destructive_scope", "scope_growth", "blocking_unknowns")
+norm = {}
+for k in need:
+    v = str(flags.get(k, "no")).lower()
+    norm[k] = v if v in ("yes", "no") else "no"
+
+forced = [k for k in need if norm[k] == "yes"]
+if forced:
+    verdict = "escalate"
+    note = "flag forced escalate: " + ", ".join(forced)
+    if note not in reasons:
+        reasons.append(note)
+
+if os.environ.get("GATE_PRIOR_REVISE") == "1" and verdict == "revise":
+    verdict = "escalate"
+    note = "attempt cap: a prior revise already exists (one revision max)"
+    if note not in reasons:
+        reasons.append(note)
+
+attempt = int(os.environ["GATE_ATTEMPT"])
+br_id = os.environ["GATE_ID"]
+
+def bullets(items):
+    out = []
+    for r in items:
+        one = " ".join(str(r).split())
+        if one:
+            out.append("- " + one)
+    return out
+
+lines = [
+    "gate:v1",
+    "attempt: %d" % attempt,
+    "verdict: %s" % verdict,
+    "flags:",
+    "destructive_scope: %s" % norm["destructive_scope"],
+    "scope_growth: %s" % norm["scope_growth"],
+    "blocking_unknowns: %s" % norm["blocking_unknowns"],
+    "reasons:",
+]
+lines.extend(bullets(reasons))
+if verdict == "revise":
+    lines.append("revisions:")
+    lines.extend(bullets(revisions))
+
+with open(os.environ["GATE_COMMENT"], "w") as f:
+    f.write("\n".join(lines) + "\n")
+
+with open(os.environ["GATE_JSON"], "w") as f:
+    json.dump({
+        "br_id": br_id,
+        "verdict": verdict,
+        "attempt": attempt,
+        "flags": norm,
+    }, f)
+    f.write("\n")
+sys.stdout.write(verdict + "\n")
+'
+}
+
+cmd_gate() {
+  local id="" model="$DEFAULT_GATE_MODEL"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model)
+        [[ $# -ge 2 ]] || die_gate_usage "--model needs M"
+        model="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage_gate
+        exit 2
+        ;;
+      --)
+        shift
+        ;;
+      -*)
+        die_gate_usage "unknown flag $1"
+        ;;
+      *)
+        if [[ -n "$id" ]]; then
+          die_gate_usage "gate takes one ID"
+        fi
+        id="$1"
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$id" ]] || die_gate_usage "gate needs ID"
+  validate_job_id "$id"
+  require_no_ctl model "$model"
+  require_br
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for gate)\n' >&2
+    exit 2
+  fi
+
+  local rubric="$ROOT/templates/gate-rubric.md"
+  [[ -f "$rubric" ]] || die "missing gate rubric: $rubric"
+
+  local tmpd
+  tmpd="$(mktemp -d "${TMPDIR:-/tmp}/cp-gate.XXXXXX")"
+  trap "rm -rf \"$tmpd\"" EXIT
+
+  # artifact get is the only sanctioned reader (not br show).
+  if ! artifact_get "$id" >"$tmpd/artifact.md" 2>"$tmpd/get.err"; then
+    if grep -q 'no artifact:v1 comment' "$tmpd/get.err"; then
+      printf '[cp] error: no artifact on %s — cannot gate\n' "$id" >&2
+      exit 1
+    fi
+    cat "$tmpd/get.err" >&2
+    die "cannot extract artifact for $id"
+  fi
+
+  {
+    cat "$rubric"
+    printf '\n'
+    cat "$tmpd/artifact.md"
+  } > "$tmpd/prompt"
+
+  local state attempt prior_revise
+  state="$(gate_prior_state "$id")" || die "cannot list comments for $id"
+  IFS=$'\t' read -r attempt prior_revise <<< "$state"
+  [[ -n "$attempt" ]] || die "cannot parse gate history for $id"
+
+  local parsed=""
+  if ! run_gate_reviewer "$tmpd/prompt" "$model" "$tmpd/out1"; then
+    : # nonempty/empty output still goes through the parser
+  fi
+  if ! parsed="$(parse_gate_verdict < "$tmpd/out1")"; then
+    if ! run_gate_reviewer "$tmpd/prompt" "$model" "$tmpd/out2"; then
+      :
+    fi
+    if ! parsed="$(parse_gate_verdict < "$tmpd/out2")"; then
+      parsed='{"verdict":"escalate","reasons":["reviewer output unparseable after one retry"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
+    fi
+  fi
+
+  local verdict db
+  if ! verdict="$(
+    GATE_ID="$id" GATE_ATTEMPT="$attempt" GATE_PRIOR_REVISE="$prior_revise" \
+      GATE_COMMENT="$tmpd/comment" GATE_JSON="$tmpd/result.json" \
+      apply_gate_policy <<< "$parsed"
+  )"; then
+    die "cannot apply gate policy for $id"
+  fi
+
+  db="$(resolve_beads_db)"
+  if ! br --db "$db" comments add "$id" --file "$tmpd/comment" -q >/dev/null; then
+    die "br comments add failed for $id"
+  fi
+  cat "$tmpd/result.json"
+  case "$verdict" in
+    pass) exit 0 ;;
+    revise) exit 10 ;;
+    escalate) exit 20 ;;
+    *) die "internal: bad verdict $verdict" ;;
+  esac
+}
+
 cmd_jobs() {
   [[ $# -gt 0 ]] || die_jobs_usage "missing add|set|done|list"
   case "$1" in
@@ -1426,6 +1763,10 @@ main() {
       shift
       cmd_artifact "$@"
       ;;
+    gate)
+      shift
+      cmd_gate "$@"
+      ;;
     dispatch)
       shift
       cmd_dispatch "$@"
@@ -1438,7 +1779,7 @@ main() {
       usage
       ;;
     *)
-      die_usage "unknown command $1 (want: check, jobs, artifact, dispatch, or teardown)"
+      die_usage "unknown command $1 (want: check, jobs, artifact, gate, dispatch, or teardown)"
       ;;
   esac
 }
