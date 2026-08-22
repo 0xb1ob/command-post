@@ -133,7 +133,7 @@ write `bin/cp jobs`. Do not reimplement `muxa dispatch`.
 
 ### Checklist
 
-1. **Promote-not-spawn** — [Promote vs new lease](#promote-vs-new-lease). `muxa dispatch --cwd` warns when the path is occupied; `bin/cp check` fail-closes the same policy from `muxa who --json`.
+1. **Promote-not-spawn** — [Promote vs new lease](#promote-vs-new-lease). `muxa dispatch --cwd` warns when the path is occupied; `bin/cp check` fail-closes the same policy from `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; anything else fail-closed).
 2. **Canonical clone.** Lease source is `projects/<name>` (Path in `data/projects.md`). One clone per project; extra checkouts (`~/command-post`, …) are not lease sources.
 3. **Treehouse lease** from that clone: `treehouse get --lease` with cwd `projects/<name>`. Bind the printed path; pass that variable to `bin/cp check` and `muxa dispatch --cwd` — do not retype it. Confirm it is a linked worktree of that clone (`git -C "$worktree" rev-parse --git-common-dir` resolves under `projects/<name>/.git`).
 4. **Precheck** from this command-post home: `bin/cp check --project <name> [--base BRANCH] <worktree>...`
