@@ -1692,7 +1692,11 @@ cmd_dispatch() {
   receipt="unconfirmed"
   local tail_out="" tail_rc=0
   tail_out="$(muxa tail "$worker")" || tail_rc=$?
+  # One tail only. Cursor panes collapse the pasted brief to "[Pasted text]"
+  # but still render the bare branch in the footer (path · branch).
   if [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "Branch: $branch"; then
+    receipt="confirmed"
+  elif [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "$branch"; then
     receipt="confirmed"
   fi
 
