@@ -88,14 +88,27 @@ else
   ok "zero tmux pane commands in playbook, bin/cp, and tests"
 fi
 
-# bin/cp consumes who --json; it must not call dispatch/spawn/kill/send.
-# Strip comments and quoted strings so policy printf text is not an invocation.
-cp_muxa_hits="$(sed -E "s/#.*//; s/\"[^\"]*\"//g; s/'[^']*'//g" "$ROOT/bin/cp" | grep -nE 'muxa[[:space:]]+(dispatch|spawn|kill|send|unregister|tail)([[:space:]]|$)' || true)"
+# check/jobs consume who --json only. dispatch/teardown wrap muxa (call
+# dispatch, tail, kill) and must not reimplement them. Follow-up mail is
+# still the orchestrator's muxa send — this CLI must not send, spawn, or
+# unregister. Strip comments and quoted strings so policy printf text is
+# not an invocation.
+cp_muxa_hits="$(sed -E "/<<'EOF'/,/^EOF$/d; s/#.*//; s/\"[^\"]*\"//g; s/'[^']*'//g" "$ROOT/bin/cp" | grep -nE 'muxa[[:space:]]+(spawn|send|unregister)([[:space:]]|$)' || true)"
 if [[ -n "$cp_muxa_hits" ]]; then
-  fail "bin/cp does not invoke muxa dispatch/spawn/kill/send ($cp_muxa_hits)"
+  fail "bin/cp does not invoke muxa spawn/send/unregister ($cp_muxa_hits)"
 else
-  ok "bin/cp does not invoke muxa dispatch/spawn/kill/send"
+  ok "bin/cp does not invoke muxa spawn/send/unregister"
 fi
+
+grep -F -q 'dispatch_cmd=(muxa dispatch)' "$ROOT/bin/cp" \
+  && ok "bin/cp dispatch calls muxa dispatch" \
+  || fail "bin/cp dispatch calls muxa dispatch"
+grep -F -q 'muxa tail' "$ROOT/bin/cp" \
+  && ok "bin/cp dispatch calls muxa tail" \
+  || fail "bin/cp dispatch calls muxa tail"
+grep -F -q 'muxa kill' "$ROOT/bin/cp" \
+  && ok "bin/cp teardown calls muxa kill" \
+  || fail "bin/cp teardown calls muxa kill"
 
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
