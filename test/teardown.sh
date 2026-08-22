@@ -206,6 +206,21 @@ else
   fail "already-gone worker still returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
 fi
 
+# artifact dir under HOME is removed on successful teardown
+WT_ART="$TMP/wt-art"
+make_pushed_wt "$WT_ART" feat-art
+WT_ART="$(cd "$WT_ART" && pwd -P)"
+"$CP" jobs add job-art worker=art-owl worktree="$WT_ART" branch=feat-art >/dev/null
+mkdir -p "$CP_HOME/state/artifacts/job-art"
+printf 'findings\n' > "$CP_HOME/state/artifacts/job-art/report.md"
+printf '[]\n' > "$CP_TEST_WHO"
+if "$CP" teardown job-art >/dev/null 2>"$TMP/err.art" \
+  && [[ ! -d "$CP_HOME/state/artifacts/job-art" ]]; then
+  ok "teardown removes state/artifacts/<id>"
+else
+  fail "teardown removes state/artifacts/<id> (err=$(cat "$TMP/err.art"))"
+fi
+
 # help
 expect_rc_msg 2 "Does not close the br issue" "teardown help says it does not close br" \
   "$CP" teardown --help

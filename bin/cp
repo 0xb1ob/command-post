@@ -3,6 +3,7 @@
 #
 #   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
 #   bin/cp jobs add|set|done|list ...
+#   bin/cp artifact path|add|get ...
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
 #   bin/cp teardown ID
@@ -45,11 +46,18 @@
 # that CLI required them). State: $CP_HOME/state/jobs.tsv (gitignored).
 # Does not call tmux; pane facts stay on muxa who --json / dispatch stdout.
 #
+# artifact: br-comment store for research→implement handoff. path prints
+# $CP_HOME/state/artifacts/<id>/report.md (gitignored; teardown cleans).
+# add writes the file as a comment prefixed with artifact:v1 (body in br;
+# never printed). get prints the newest artifact:v1 body with the marker
+# stripped. br always uses the home tracker (--db); fail-closed if
+# $CP_HOME has no .beads (do not init a second database from a worktree).
+#
 # Command-post home is this script's repo root (from the script location,
 # never $PWD), or CP_HOME if set.
 # Test overrides (not for live dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
-# BR_SHOW_CMD, CP_JOBS_FILE. dispatch/teardown call muxa and treehouse on
-# PATH so tests can shim them.
+# BR_SHOW_CMD, BR_DB, CP_JOBS_FILE. dispatch/teardown call muxa and
+# treehouse on PATH so tests can shim them.
 set -euo pipefail
 
 PROG="${BASH_SOURCE[0]}"
@@ -59,6 +67,7 @@ CP_HOME="${CP_HOME:-$ROOT}"
 usage() {
   printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
   printf '       %s jobs add|set|done|list ...\n' "$PROG" >&2
+  printf '       %s artifact path|add|get ...\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       %s teardown ID\n' "$PROG" >&2
   exit 2
@@ -87,6 +96,18 @@ usage_jobs() {
 die_jobs_usage() {
   printf '[cp] error: %s\n' "$*" >&2
   usage_jobs
+  exit 2
+}
+
+usage_artifact() {
+  printf 'usage: %s artifact path ID\n' "$PROG" >&2
+  printf '       %s artifact add ID FILE\n' "$PROG" >&2
+  printf '       %s artifact get ID\n' "$PROG" >&2
+}
+
+die_artifact_usage() {
+  printf '[cp] error: %s\n' "$*" >&2
+  usage_artifact
   exit 2
 }
 
@@ -445,20 +466,55 @@ require_no_ctl() {
   [[ -n "$val" ]] || die "empty $key="
 }
 
+# Home tracker only. --db (realpath) so br never auto-inits a rogue
+# .beads from a leased worktree cwd. BR_DB is a test override.
+resolve_beads_db() {
+  local raw dir db
+  if [[ -n "${BR_DB:-}" ]]; then
+    raw="$BR_DB"
+    if [[ -d "$raw" ]]; then
+      db="$raw/beads.db"
+      [[ -f "$db" ]] || die "BR_DB is a directory but has no beads.db: $raw"
+    elif [[ -f "$raw" ]]; then
+      db="$raw"
+    else
+      die "BR_DB is not a beads database: $raw"
+    fi
+    normalize_path "$db"
+    return 0
+  fi
+  dir="$CP_HOME/.beads"
+  if [[ ! -d "$dir" ]]; then
+    die "no .beads at $CP_HOME — br must run against the command-post home tracker (refusing to init a second database)"
+  fi
+  db="$dir/beads.db"
+  if [[ ! -f "$db" ]]; then
+    die "no beads.db in $dir"
+  fi
+  normalize_path "$db"
+}
+
+require_br() {
+  if ! command -v br >/dev/null 2>&1; then
+    printf '[cp] error: br not on PATH\n' >&2
+    exit 2
+  fi
+}
+
 require_br_issue() {
   local id="$1"
   local -a cmd
+  local db
   if [[ -n "${BR_SHOW_CMD:-}" ]]; then
     # shellcheck disable=SC2206
     cmd=($BR_SHOW_CMD)
   else
-    if ! command -v br >/dev/null 2>&1; then
-      printf '[cp] error: br not on PATH (jobs are keyed by br id)\n' >&2
-      exit 2
-    fi
-    cmd=(br show --json)
+    require_br
+    db="$(resolve_beads_db)"
+    cmd=(br --db "$db" show --json)
   fi
-  # br discovers .beads/ from cwd. Orchestrator home is CP_HOME.
+  # br discovers .beads/ from cwd. Orchestrator home is CP_HOME; --db
+  # pins the tracker so a worktree cwd cannot spawn a second database.
   if ! (cd "$CP_HOME" && "${cmd[@]}" "$id" >/dev/null); then
     die "no br issue $id — jobs are keyed by br id; create the issue first"
   fi
@@ -707,6 +763,144 @@ jobs_list() {
     IFS=$'\t' read -r job worker worktree branch _ <<< "$line"
     printf '%-28s %-20s %-28s %s\n' "$job" "$worker" "$branch" "$worktree"
   done < "$f"
+}
+
+artifact_dir() {
+  local id="$1"
+  printf '%s\n' "$CP_HOME/state/artifacts/$id"
+}
+
+artifact_report() {
+  local id="$1"
+  printf '%s\n' "$(artifact_dir "$id")/report.md"
+}
+
+artifact_path() {
+  local id dir report
+  [[ $# -ge 1 ]] || die_artifact_usage "path needs ID"
+  [[ $# -eq 1 ]] || die_artifact_usage "path takes ID only"
+  id="$1"
+  validate_job_id "$id"
+  dir="$(artifact_dir "$id")"
+  report="$(artifact_report "$id")"
+  mkdir -p "$dir"
+  printf '%s\n' "$report"
+}
+
+artifact_add() {
+  local id file db tmp bytes
+  [[ $# -ge 2 ]] || die_artifact_usage "add needs ID FILE"
+  [[ $# -eq 2 ]] || die_artifact_usage "add takes ID FILE only"
+  id="$1"
+  file="$2"
+  validate_job_id "$id"
+  [[ -f "$file" ]] || die "not a file: $file"
+  require_br
+  require_br_issue "$id"
+  db="$(resolve_beads_db)"
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for artifact add JSON)\n' >&2
+    exit 2
+  fi
+  bytes="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$file")"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/cp-artifact.XXXXXX")"
+  {
+    printf 'artifact:v1\n'
+    cat -- "$file"
+  } > "$tmp"
+  # -q: br comments add --json reprints the body; never print it.
+  if ! br --db "$db" comments add "$id" --file "$tmp" -q >/dev/null; then
+    rm -f "$tmp"
+    die "br comments add failed for $id"
+  fi
+  rm -f "$tmp"
+  python3 -c 'import json,sys; json.dump({"br_id": sys.argv[1], "bytes": int(sys.argv[2])}, sys.stdout); print()' "$id" "$bytes"
+}
+
+artifact_get() {
+  local id db raw
+  [[ $# -ge 1 ]] || die_artifact_usage "get needs ID"
+  [[ $# -eq 1 ]] || die_artifact_usage "get takes ID only"
+  id="$1"
+  validate_job_id "$id"
+  require_br
+  db="$(resolve_beads_db)"
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for artifact get)\n' >&2
+    exit 2
+  fi
+  if ! raw="$(br --db "$db" comments list "$id" --json)"; then
+    die "cannot list comments for $id"
+  fi
+  ARTIFACT_ID="$id" python3 -c '
+import json, os, sys
+raw = sys.stdin.read()
+try:
+    comments = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.exit(2)
+if not isinstance(comments, list):
+    sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
+    sys.exit(2)
+best = None
+for c in comments:
+    if not isinstance(c, dict):
+        continue
+    text = c.get("text") if c.get("text") is not None else ""
+    if not isinstance(text, str):
+        continue
+    first = text.splitlines()[0] if text else ""
+    if first != "artifact:v1":
+        continue
+    created = c.get("created_at") if c.get("created_at") is not None else ""
+    cid = c.get("id")
+    try:
+        cid_n = int(cid)
+    except (TypeError, ValueError):
+        cid_n = 0
+    key = (str(created), cid_n)
+    if best is None or key >= best[0]:
+        best = (key, text)
+if best is None:
+    sys.stderr.write("[cp] error: no artifact:v1 comment on %s\n" % os.environ.get("ARTIFACT_ID", ""))
+    sys.exit(1)
+text = best[1]
+if text.startswith("artifact:v1\r\n"):
+    body = text[len("artifact:v1\r\n"):]
+elif text.startswith("artifact:v1\n"):
+    body = text[len("artifact:v1\n"):]
+elif text == "artifact:v1":
+    body = ""
+else:
+    body = text.split("\n", 1)[1] if "\n" in text else ""
+sys.stdout.write(body)
+' <<< "$raw"
+}
+
+cmd_artifact() {
+  [[ $# -gt 0 ]] || die_artifact_usage "missing path|add|get"
+  case "$1" in
+    path)
+      shift
+      artifact_path "$@"
+      ;;
+    add)
+      shift
+      artifact_add "$@"
+      ;;
+    get)
+      shift
+      artifact_get "$@"
+      ;;
+    -h|--help)
+      usage_artifact
+      exit 2
+      ;;
+    *)
+      die_artifact_usage "unknown artifact command $1 (want: path, add, get)"
+      ;;
+  esac
 }
 
 cmd_jobs() {
@@ -1110,7 +1304,7 @@ cmd_dispatch() {
   fi
 
   parent="$(muxa_whoami_name)"
-  artifact="$CP_HOME/state/artifacts/${br_id}/report.md"
+  artifact="$(artifact_report "$br_id")"
   if [[ "$artifact" != /* ]]; then
     artifact="$(cd "$CP_HOME" && pwd)/state/artifacts/${br_id}/report.md"
   fi
@@ -1208,6 +1402,13 @@ cmd_teardown() {
   fi
 
   jobs_done "$id" >&2
+
+  # Artifact job: teardown cleans $CP_HOME/state/artifacts/<id>.
+  local art
+  art="$(artifact_dir "$id")"
+  if [[ -n "$art" && "$art" == "$CP_HOME/state/artifacts/$id" && -d "$art" ]]; then
+    rm -rf "$art"
+  fi
 }
 
 main() {
@@ -1221,6 +1422,10 @@ main() {
       shift
       cmd_jobs "$@"
       ;;
+    artifact)
+      shift
+      cmd_artifact "$@"
+      ;;
     dispatch)
       shift
       cmd_dispatch "$@"
@@ -1233,7 +1438,7 @@ main() {
       usage
       ;;
     *)
-      die_usage "unknown command $1 (want: check, jobs, dispatch, or teardown)"
+      die_usage "unknown command $1 (want: check, jobs, artifact, dispatch, or teardown)"
       ;;
   esac
 }
