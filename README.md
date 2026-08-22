@@ -52,15 +52,15 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`check`) and runtime jobs map (`jobs`) |
-| `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook) |
+| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`) |
+| `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook, artifact) |
 | `reports/` | yes | Design research for this repo |
 | `skills/` | yes | Canonical agent skills (`cp-memory`) |
 | `scripts/muxa-hook.sh` | yes | Project hook script for root self-registration |
 | `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
 | `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
-| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`); row gone at teardown |
+| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`); research artifacts (`state/artifacts/`) |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
 | `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` | **no** | Harness copies of `skills/` from `bin/install.sh` |
