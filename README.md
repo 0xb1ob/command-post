@@ -25,7 +25,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 **Phase 1 — deps**
 
 1. Checks prerequisites: `git`, `curl`, `tmux` (muxa requires tmux)
-2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes skills/hooks on re-run), then checks that `muxa-broker` sits next to it — without the broker binary, `muxa send` exits non-zero and pastes nothing, and `muxa who --json` also fails (it needs the binary for JSON encoding). muxa's SPEC is fail-closed — no paste-buffer fallback. muxa's installer provides that binary; command-post never compiles it. The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
+2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes global skills on re-run; its installer stops/restarts the broker daemon in tmux), then verifies the `muxa` binary. muxa is one binary — the paste broker is `muxa broker start`, not a separate `muxa-broker` release asset. Without a running broker, `muxa send` exits non-zero and pastes nothing (fail-closed). The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
 3. Installs [`br`](https://github.com/Dicklesworthstone/beads_rust) (beads) with `--skip-skills`
 4. Installs [`treehouse`](https://github.com/kunchenguid/treehouse) for worktree leasing
 
@@ -35,6 +35,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 2. Creates `projects/` if missing
 3. Runs `br init --prefix cp` if `.beads/` is absent
 4. Copies tracked `skills/` into gitignored harness dirs (`.cursor/skills`, `.claude/skills`, `.agents/skills`) so Cursor, Claude Code, and Codex discover them
+5. Ensures project-scoped muxa hooks are present (`.claude/settings.json`, `.cursor/hooks.json`, `scripts/muxa-hook.sh`) so a root pane started by hand in this repo self-registers on `muxa who`
 
 Put `~/.local/bin` on your `PATH` if it is not already. Re-run anytime; existing
 `br` / `treehouse` installs are skipped, muxa is refreshed, scaffold steps are no-ops when already present.
@@ -55,6 +56,9 @@ worker.
 | `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook) |
 | `reports/` | yes | Design research for this repo |
 | `skills/` | yes | Canonical agent skills (`cp-memory`) |
+| `scripts/muxa-hook.sh` | yes | Project hook script for root self-registration |
+| `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
+| `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `state/` | **no** | Runtime jobs map (`state/jobs.tsv`); row gone at teardown |
 | `projects/` | **no** | Cloned repos, one directory per name |
