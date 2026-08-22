@@ -70,6 +70,13 @@ lacks "muxa send --json <alias>" "first brief is not muxa send --json"
 lacks '`muxa jobs`' "does not resurrect muxa jobs"
 lacks '`muxa preflight`' "does not resurrect muxa preflight"
 
+lines="$(wc -l < "$AGENTS" | tr -d ' ')"
+if [[ "$lines" -le 420 ]]; then
+  ok "AGENTS.md is ≤420 lines (target ~400; got $lines)"
+else
+  fail "AGENTS.md is ≤420 lines (got $lines; target ~400)"
+fi
+
 # Zero tmux pane commands in the playbook, bin/cp, and this repo's tests.
 # Mentions of the word tmux ("do not call tmux") are allowed; quoted
 # contract needles in this file are not invocations.

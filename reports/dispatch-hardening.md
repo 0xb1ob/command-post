@@ -40,7 +40,8 @@ worktree returned, or job is independent (other repo / second worktree)
 Before dispatch: `bin/cp check --project <name> "$worktree"` (and `muxa who --json`
 `cwd`). `muxa dispatch --cwd` warns if a registered worker already occupies
 that path — promote with `muxa send`, do not dispatch a second pane. Ghost
-panes: `muxa unregister`, do not promote.
+panes: `muxa kill NAME|ID` (dead pane) or restart the CLI in that pane; do
+not promote.
 
 ## 2. Stale clone / "belongs to another repo"
 
@@ -66,6 +67,36 @@ preflight is not "treehouse unavailable."
 
 `bin/install.sh` warns when `$HOME/<name>` is a different git repo from
 `projects/<name>` (or this checkout vs `~/command-post`).
+
+### Why not `git worktree add`
+
+`treehouse get --lease` keys off the git repo of the cwd you run it from. A
+leftover clone (e.g. `~/command-post`) yields a worktree linked to that `.git`,
+not `projects/<name>/.git`. `bin/cp check` then fails: the path **belongs to
+another repo**.
+
+Recovering with `git worktree add` under `projects/.worktrees/` (or anywhere)
+bypasses the treehouse pool. Teardown becomes `git worktree remove` instead of
+`treehouse return`, and the pool stays wrong. That is why the contract allows
+`git worktree add` only when treehouse is **not installed**, and treats a
+treehouse failure as still-installed.
+
+## First-brief receipt
+
+Cursor Agent can collapse a paste to a placeholder and scroll it away, so the
+broker's confirm-before-done may log a successful delivery as unconfirmed and
+re-paste when the pane next looks free. Until that muxa bug lands, verify
+receipt independently: unique token in every first brief (the worktree's branch
+name), confirm with one `muxa tail NAME` that the token appeared. Do not loop
+tail. Token absent and no `[muxa] from=broker` yet → wait for mail; do not
+re-dispatch.
+
+## Teardown
+
+Plain `treehouse return` (no `--force`) prompts interactively. `--force` resets
+without asking — which is why the worker's clean-and-pushed gate runs first,
+and why the parent (not the worker) is the actor: `treehouse return --force`
+from outside the worktree, then `muxa kill NAME|ID`.
 
 ## Orchestration notes
 

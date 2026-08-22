@@ -52,6 +52,7 @@ worker.
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
 | `bin/cp` | yes | Dispatch precheck (`check`) and runtime jobs map (`jobs`) |
+| `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook) |
 | `reports/` | yes | Design research for this repo |
 | `skills/` | yes | Canonical agent skills (`cp-memory`) |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
