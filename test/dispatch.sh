@@ -270,6 +270,70 @@ else
   fail "cursor-footer JSON (out=$out err=$(cat "$TMP/err.cur"))"
 fi
 
+# claude false positive: footer renders cwd+branch regardless of receipt.
+# The bare-branch match that works for cursor must NOT fire for kind=claude.
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-claude-fp" >/dev/null
+LEASE_CLAUDE_FP="$(cd "$TMP/leased-claude-fp" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CLAUDE_FP"
+cat > "$CP_TEST_WHO" <<EOF
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"/tmp/cp-test-not-a-worktree"}]
+EOF
+printf 'pane/leased-claude-fp (job-claude-fp) | Opus 5 | Context: 0.0%%\n' > "$CP_TEST_TAIL"
+out="$("$CP" dispatch --project demo --br-id job-claude-fp --task-file "$TMP/task.txt" 2>"$TMP/err.cfp")" || {
+  fail "claude false-positive dispatch (exit $? err=$(cat "$TMP/err.cfp"))"
+  out=""
+}
+if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["receipt"] != "confirmed", o'; then
+  ok "claude footer-only branch text does not confirm receipt (false positive guard)"
+else
+  fail "claude false-positive JSON (out=$out err=$(cat "$TMP/err.cfp"))"
+fi
+if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["receipt"] == "unknown", o'; then
+  ok "claude zero-context footer reads receipt=unknown, not unconfirmed"
+else
+  fail "claude false-positive receipt value (out=$out)"
+fi
+
+# claude confirmed: nonzero footer Context% means the brief was consumed.
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-claude-ok" >/dev/null
+LEASE_CLAUDE_OK="$(cd "$TMP/leased-claude-ok" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CLAUDE_OK"
+cat > "$CP_TEST_WHO" <<EOF
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"/tmp/cp-test-not-a-worktree"}]
+EOF
+printf 'pane/leased-claude-ok (job-claude-ok) | Opus 5 | Context: 4.2%%\n' > "$CP_TEST_TAIL"
+out="$("$CP" dispatch --project demo --br-id job-claude-ok --task-file "$TMP/task.txt" 2>"$TMP/err.cok")" || {
+  fail "claude confirmed dispatch (exit $? err=$(cat "$TMP/err.cok"))"
+  out=""
+}
+if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["receipt"]=="confirmed"'; then
+  ok "claude nonzero footer Context confirms receipt"
+else
+  fail "claude confirmed JSON (out=$out err=$(cat "$TMP/err.cok"))"
+fi
+
+# claude too-early: no footer drawn yet (boot in progress) is NOT reported
+# as not-received — it is a distinct unknown state, never unconfirmed.
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-claude-boot" >/dev/null
+LEASE_CLAUDE_BOOT="$(cd "$TMP/leased-claude-boot" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CLAUDE_BOOT"
+cat > "$CP_TEST_WHO" <<EOF
+[{"name":"swift-oak","id":"abc","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"/tmp/cp-test-not-a-worktree"}]
+EOF
+printf '\n' > "$CP_TEST_TAIL"
+out="$("$CP" dispatch --project demo --br-id job-claude-boot --task-file "$TMP/task.txt" 2>"$TMP/err.cboot")" || {
+  fail "claude too-early dispatch (exit $? err=$(cat "$TMP/err.cboot"))"
+  out=""
+}
+if printf '%s\n' "$out" | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o["receipt"]=="unknown"; assert o["state"]=="dispatched"'; then
+  ok "claude pane with no footer yet reads receipt=unknown (too-early, not not-received)"
+else
+  fail "claude too-early JSON (out=$out err=$(cat "$TMP/err.cboot"))"
+fi
+
 # --name is passed through; custom CMD after --
 reset_logs
 git -C "$CLONE" worktree add --detach -q "$TMP/leased3" >/dev/null

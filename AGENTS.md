@@ -235,20 +235,20 @@ body; placeholder table there). `bin/cp dispatch --template` substitutes.
 This contract **wins** over muxa-parent's slim dispatch template. Pass it with
 `--brief-file` (stdin also works); never a positional string.
 
-`bin/cp dispatch` stdout is `{br_id,worker,worktree,branch,state,receipt}`. Exit 0 and
-`state: dispatched` mean the pane exists and the brief is queued, not received.
-`state=dispatched` + `receipt=unconfirmed` is a VALID success — wait for mail;
-never re-dispatch (cursor panes collapse the paste; the bare branch in the pane
-footer is receipt evidence; fix: br command-post-uhb). `state=dispatched → queued`.
+`bin/cp dispatch` stdout is `{br_id,worker,worktree,branch,state,receipt}`. Exit 0 and `state: dispatched`
+mean the pane exists and the brief is queued, not received. `state=dispatched` + `receipt=unconfirmed`/`unknown`
+is a VALID success — wait for mail; never re-dispatch. `state=dispatched → queued`.
 
-Receipt token = branch name. Confirm with one `muxa tail NAME` that the token
-(`Branch: ${branch}`; `bin/cp dispatch` sets branch=br-id) appeared. Do not loop tail.
-Token absent and no `[muxa] from=broker` yet → wait for mail; do not re-dispatch.
+Receipt is kind-aware (`muxa who --json` kind, never the agent CMD or pane text). Cursor: one `muxa tail NAME`
+for the token `Branch: ${branch}` (`bin/cp dispatch` sets branch=br-id) or the bare branch in the footer.
+Claude: never the bare branch (footer always shows cwd+branch — false positive) or the token (claude
+consumes the brief — false negative); use footer `Context: N%`, nonzero once consumed, else `receipt=unknown`
+— one check can't split a drop from claude's slow boot, so it never claims not-received. Do not loop tail.
+No signal and no `[muxa] from=broker` yet → wait for mail; do not re-dispatch.
 Rationale: [reports/dispatch-hardening.md](reports/dispatch-hardening.md#first-brief-receipt).
 
-Follow-up mail (promote, or a second message to a running worker) is still
-`muxa send`. If that send matters for a later failure turn, `muxa send --json`
-returns `{"id","pane","from","to"}`.
+Follow-up mail (promote, or a second message to a running worker) is still `muxa send`.
+If that send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
 
 ### Never ready (`[muxa] from=broker`)
 

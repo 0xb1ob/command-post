@@ -98,6 +98,7 @@ usage_dispatch() {
   printf '       stdout: one JSON object {br_id,worker,worktree,branch,state,receipt}\n' >&2
   printf '       state=dispatched means the brief is queued, not received.\n' >&2
   printf '       receipt=unconfirmed with state=dispatched is a valid success — wait for mail; never re-dispatch.\n' >&2
+  printf '       claude panes: receipt=unknown replaces unconfirmed (too-early-to-tell, not not-received) — same rule, wait for mail.\n' >&2
 }
 
 usage_teardown() {
@@ -350,13 +351,14 @@ for r in rows:
     name = r.get("name") if r.get("name") is not None else ""
     state = r.get("state") if r.get("state") is not None else ""
     cwd = r.get("cwd") if r.get("cwd") is not None else ""
+    kind = r.get("kind") if r.get("kind") is not None else ""
     if str(state) == "":
         sys.stderr.write("[cp] error: muxa who --json: missing state\n")
         sys.exit(2)
-    if "\t" in str(name) or "\n" in str(name) or "\t" in str(state) or "\n" in str(state) or "\t" in str(cwd) or "\n" in str(cwd):
+    if "\t" in str(name) or "\n" in str(name) or "\t" in str(state) or "\n" in str(state) or "\t" in str(cwd) or "\n" in str(cwd) or "\t" in str(kind) or "\n" in str(kind):
         sys.stderr.write("[cp] error: muxa who --json: field contains a tab or newline\n")
         sys.exit(2)
-    sys.stdout.write("%s\t%s\t%s\n" % (name, state, cwd))
+    sys.stdout.write("%s\t%s\t%s\t%s\n" % (name, state, cwd, kind))
 '
 }
 
@@ -1589,6 +1591,38 @@ worker_in_who() {
   return 1
 }
 
+# Prints the worker's kind (claude|cursor|...) from muxa who --json, or
+# empty if the row is absent or carries no kind. This is the only source of
+# truth for kind — never infer it from the agent CMD or pane text.
+worker_kind() {
+  local want="$1" line name state cwd kind
+  local -a who_cmd
+  if [[ -n "${MUXA_WHO_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    who_cmd=($MUXA_WHO_CMD)
+  else
+    require_muxa_bin
+    who_cmd=(muxa who --json)
+  fi
+  local who_out parsed
+  if ! who_out="$("${who_cmd[@]}")"; then
+    printf '[cp] error: muxa who --json failed\n' >&2
+    exit 2
+  fi
+  if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
+    exit 2
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    IFS=$'\t' read -r name state cwd kind <<< "$line"
+    if [[ "$name" == "$want" ]]; then
+      printf '%s\n' "$kind"
+      return 0
+    fi
+  done <<< "$parsed"
+  printf '\n'
+}
+
 assert_clean_and_pushed() {
   local wt="$1" branch="$2"
   local dirty local_rev remote_rev upstream head_branch base
@@ -1780,14 +1814,43 @@ cmd_dispatch() {
   jobs_add "$br_id" "worker=$worker" "worktree=$wt" "branch=$branch" >&2
 
   receipt="unconfirmed"
-  local tail_out="" tail_rc=0
+  local pane_kind tail_out="" tail_rc=0
+  pane_kind="$(worker_kind "$worker")"
   tail_out="$(muxa tail "$worker")" || tail_rc=$?
-  # One tail only. Cursor panes collapse the pasted brief to "[Pasted text]"
-  # but still render the bare branch in the footer (path · branch).
-  if [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "Branch: $branch"; then
-    receipt="confirmed"
-  elif [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "$branch"; then
-    receipt="confirmed"
+  # One tail only, ever — kind-aware from here (br command-post-6wco).
+  if [[ "$pane_kind" == "claude" ]]; then
+    # claude consumes the pasted brief into its conversation instead of
+    # echoing it, so "Branch: $branch" never stays visible; and its footer
+    # always renders cwd+branch regardless of receipt (the branch is
+    # created on the worktree before the paste), so a bare "$branch" match
+    # is a false positive, not evidence. Real signal: the footer's
+    # "Context: N%" — nonzero only once the brief has been consumed.
+    # A single read can't tell "not received" from "still booting" (claude's
+    # boot is slow enough to look identical to a drop), so a zero/absent
+    # reading here is reported as receipt=unknown, never unconfirmed —
+    # unconfirmed would read as "checked, not there"; unknown says "this one
+    # check could not tell either way." Do not loop tail to resolve it.
+    local ctx_pct=""
+    if [[ "$tail_rc" -eq 0 ]]; then
+      ctx_pct="$(printf '%s\n' "$tail_out" \
+        | grep -Eo 'Context: *[0-9]+(\.[0-9]+)?%' | tail -n1 \
+        | grep -Eo '[0-9]+(\.[0-9]+)?' || true)"
+    fi
+    if [[ -n "$ctx_pct" ]] && awk -v v="$ctx_pct" 'BEGIN{exit !(v>0)}'; then
+      receipt="confirmed"
+    else
+      receipt="unknown"
+    fi
+  else
+    # Cursor (and any other non-claude kind): unchanged. Cursor panes
+    # collapse the pasted brief to "[Pasted text]" but still render the
+    # bare branch in the footer (path · branch) — kept as receipt evidence
+    # for this kind only; do not generalize the bare match to claude.
+    if [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "Branch: $branch"; then
+      receipt="confirmed"
+    elif [[ "$tail_rc" -eq 0 ]] && printf '%s\n' "$tail_out" | grep -F -q -- "$branch"; then
+      receipt="confirmed"
+    fi
   fi
 
   [[ -n "$json_state" ]] || json_state="dispatched"
