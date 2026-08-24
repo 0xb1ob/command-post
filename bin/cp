@@ -1470,22 +1470,24 @@ text = open(src, encoding="utf-8").read()
 task = ""
 if task_path:
     task = open(task_path, encoding="utf-8").read()
-repl = {
+pre_repl = {
     "{{PARENT}}": os.environ.get("PARENT", ""),
     "{{BRANCH}}": os.environ.get("BRANCH", ""),
     "{{BR_ID}}": os.environ.get("BR_ID", ""),
     "{{ARTIFACT_PATH}}": os.environ.get("ARTIFACT_PATH", ""),
-    "{{TASK}}": task,
 }
-for key, val in repl.items():
+for key, val in pre_repl.items():
     text = text.replace(key, val)
-left = re.findall(r"\{\{[^}]+\}\}", text)
+# Guard the template only — {{TASK}} is substituted after this check so
+# caller-supplied content (JSX, Handlebars, etc.) is never validated.
+left = [m for m in re.findall(r"\{\{[^}]+\}\}", text) if m != "{{TASK}}"]
 if left:
     sys.stderr.write(
         "[cp] error: placeholder %s left unsubstituted — use {{PARENT}}, {{BRANCH}}, {{BR_ID}}, {{ARTIFACT_PATH}}, {{TASK}}\n"
         % left[0]
     )
     sys.exit(1)
+text = text.replace("{{TASK}}", task)
 open(dest, "w", encoding="utf-8").write(text)
 PY
 }

@@ -323,6 +323,36 @@ else
   fail "placeholder failure returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
 fi
 
+# task body with JSX-style {{ }} survives verbatim (not mistaken for placeholders)
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-jsx" >/dev/null
+LEASE_JSX="$(cd "$TMP/leased-jsx" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_JSX"
+cat > "$TMP/task-jsx.txt" <<'EOF'
+Fix the button style={{ fontSize: 12 }} and also {{ margin: 0 }}.
+EOF
+printf 'Branch: job-jsx\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-jsx --task-file "$TMP/task-jsx.txt" \
+  >/dev/null 2>"$TMP/err.jsx" || {
+  fail "dispatch with JSX-style task body (exit $? err=$(cat "$TMP/err.jsx"))"
+}
+if grep -F -q -- 'style={{ fontSize: 12 }}' "$CP_TEST_BRIEF_COPY" \
+  && grep -F -q -- '{{ margin: 0 }}' "$CP_TEST_BRIEF_COPY"; then
+  ok "task body {{ }} sequences pass through byte-identical"
+else
+  fail "JSX-style task body in brief ($(cat "$CP_TEST_BRIEF_COPY" 2>/dev/null) err=$(cat "$TMP/err.jsx"))"
+fi
+
+# unsubstituted known token in template still fails (spaces break substitution)
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-br" >/dev/null
+LEASE_BR="$(cd "$TMP/leased-br" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_BR"
+printf 'Branch: {{ BRANCH }}\n{{TASK}}\n' > "$CP_HOME/templates/brief-nobranch.md"
+expect_rc_msg 1 "placeholder {{ BRANCH }} left unsubstituted" \
+  "unsubstituted known token in template is refused" \
+  "$CP" dispatch --project demo --br-id job-nobranch --template nobranch --task-file "$TMP/task.txt"
+
 # missing template
 reset_logs
 expect_rc_msg 1 "template not at" "missing --template file is refused" \
