@@ -1,0 +1,5 @@
+BROKER ok queued=2 done=5 failed=0 drawing=rustic-otter,%999
+
+ALIAS            ROLE         PHASE      CLI      PROJECT          AGE    TITLE
+lucid-hawk       orchestrator working    claude   demo             -      -
+rustic-otter     worker       working    claude   demo             10m    Add widget
