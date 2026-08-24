@@ -91,6 +91,45 @@ name), confirm with one `muxa tail NAME` that the token appeared. Do not loop
 tail. Token absent and no `[muxa] from=broker` yet → wait for mail; do not
 re-dispatch.
 
+### Why receipt is kind-aware (command-post-6wco)
+
+The branch-token check above is a Cursor-shaped check, and only works for
+Cursor. Applying it to `kind=claude` panes fails in both directions at once,
+which is how a real silent dispatch failure went unnoticed for a stretch of
+live jobs before it was caught:
+
+- **False positive.** `bin/cp dispatch` sets `branch=br-id` and creates that
+  branch on the leased worktree *before* the pane is even spawned. A claude
+  pane's footer renders `<cwd> (<branch>) | <model> | Context: N%` regardless
+  of whether anything was ever pasted into it. Grepping the tail for the bare
+  branch name therefore matches the footer on a pane that received nothing —
+  five dispatches self-reported `receipt=confirmed` this way while two of
+  them had received nothing at all.
+- **False negative.** Claude consumes a pasted brief into its conversation
+  instead of echoing it back into the visible pane, so the strict
+  `Branch: ${branch}` token never appears even on a pane that is actively
+  working the job. Scoring that as `receipt=unconfirmed` forever is
+  indistinguishable from genuine non-delivery.
+
+The reliable signal for `kind=claude` is the footer's own `Context: N%`: an
+empty prompt reads `Context: 0.0%`, and any pasted, tokenized content pushes
+it above zero. `bin/cp dispatch` reads kind from `muxa who --json` (never
+from the agent CMD or from pane text) and branches the check accordingly —
+see `worker_kind` and the receipt block in `cmd_dispatch` (`bin/cp`).
+
+**Timing caveat, learned from a real false alarm:** the broker deliberately
+waits for the CLI to boot, draw, and go quiet before pasting, and claude's
+own boot is slow enough to *look* identical to a dropped paste — an
+instantaneous `Context: 0.0%` reading taken the moment a pane appears is not
+evidence of anything. A prior investigation wrongly declared the delivery bug
+reproduced off exactly this kind of instant reading. To make that
+misdiagnosis structurally impossible, a zero/absent `Context: N%` reading for
+a claude pane is reported as `receipt=unknown`, never `receipt=unconfirmed`
+and never treated as not-received: one single, non-looping tail check simply
+cannot distinguish "still booting" from "genuinely dropped," so the verdict
+says so explicitly instead of guessing. The remedy is the same as
+`unconfirmed` — wait for `[muxa]` mail, never re-dispatch, never re-paste.
+
 ## Teardown
 
 Plain `treehouse return` (no `--force`) prompts interactively. `--force` resets
