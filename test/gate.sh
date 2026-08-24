@@ -148,6 +148,7 @@ assert d["verdict"] == "pass"
 assert d["attempt"] == 1
 assert d["flags"] == {"destructive_scope": "no", "scope_growth": "no", "blocking_unknowns": "no"}
 assert d["reasons"] == ["complete and scored"]
+assert d["cause"] is None
 assert "revisions" not in d
 assert os.environ["TOKEN"] not in json.dumps(d)
 '; then
@@ -207,6 +208,7 @@ assert d["verdict"] == "revise"
 assert d["attempt"] == 1
 assert d["reasons"] == ["file list incomplete"]
 assert d["revisions"] == ["name every file"]
+assert d["cause"] is None
 '; then
   ok "revise JSON includes reasons and revisions"
 else
@@ -240,6 +242,7 @@ import json, sys
 d = json.load(sys.stdin)
 assert d["verdict"] == "escalate"
 assert d["attempt"] == 2
+assert d["cause"] == "policy"
 assert any("attempt cap" in r for r in d["reasons"])
 assert "revisions" not in d
 '; then
@@ -277,6 +280,7 @@ d = json.load(sys.stdin)
 assert d["verdict"] == "escalate"
 assert d["flags"]["destructive_scope"] == "yes"
 assert d["attempt"] == 1
+assert d["cause"] == "policy"
 assert any("flag forced escalate" in r for r in d["reasons"])
 assert "revisions" not in d
 '; then
@@ -307,6 +311,7 @@ import json, sys
 d = json.load(sys.stdin)
 assert d["verdict"] == "escalate"
 assert d["attempt"] == 1
+assert d["cause"] == "operational"
 assert d["reasons"] == ["reviewer output unparseable after one retry"]
 assert "revisions" not in d
 '; then
@@ -368,10 +373,15 @@ if printf '%s\n' "$help" | grep -q 'does NOT close the issue or authorize implem
 else
   fail "help states pass does not close or authorize implementation"
 fi
-if printf '%s\n' "$help" | grep -q 'revisions when verdict=revise' && printf '%s\n' "$help" | grep -q 'ellipsis'; then
-  ok "help documents reasons/revisions on stdout and truncation"
+if printf '%s\n' "$help" | grep -q 'cause is null on pass/revise' && printf '%s\n' "$help" | grep -q 'operational'; then
+  ok "help documents cause on stdout JSON"
 else
-  fail "help documents reasons/revisions on stdout and truncation"
+  fail "help documents cause on stdout JSON"
+fi
+if printf '%s\n' "$help" | grep -q 'ellipsis'; then
+  ok "help documents truncation on stdout JSON"
+else
+  fail "help documents truncation on stdout JSON"
 fi
 
 if [[ "$failed" -ne 0 ]]; then
