@@ -57,14 +57,17 @@
 # gate: headless quality gate for a research artifact (no pane, no lease,
 # no mail). Extracts via artifact get (never br show — that inlines
 # comment bodies), reviews against templates/gate-rubric.md, records a
-# short gate:v1 comment. Stdout JSON always includes reasons; revisions
-# when verdict=revise. Bloated reasons/revisions are truncated (ellipsis)
-# so the JSON stays a few hundred words — never the artifact body.
+# short gate:v1 comment. Stdout JSON always includes reasons and cause
+# (null on pass/revise; policy|operational on escalate); revisions when
+# verdict=revise. Bloated reasons/revisions are truncated (ellipsis) so
+# the JSON stays a few hundred words — never the artifact body.
 # Policy (flag=yes → escalate; one revise max) is enforced here, not in
 # the prompt. Default reviewer is the cursor agent CLI (--print --mode
 # ask --output-format text --model composer-2.5-fast); override the whole
 # command with CP_GATE_CMD (stdin → stdout). Exit 0=pass, 10=revise,
 # 20=escalate; pass does not close the issue or authorize implementation.
+# Escalate cause: policy = rubric/flags/attempt cap; operational =
+# reviewer output unparseable after one retry (re-run gate, not a blocker).
 #
 # Command-post home is this script's repo root (from the script location,
 # never $PWD), or CP_HOME if set.
@@ -138,10 +141,12 @@ usage_gate() {
   printf '  CP_GATE_CMD   override reviewer command; reads prompt on stdin,\n' >&2
   printf '                writes a structured verdict on stdout\n' >&2
   printf '\n' >&2
-  printf 'Stdout JSON: br_id, verdict, attempt, flags, reasons;\n' >&2
-  printf 'revisions when verdict=revise. Reasons/revisions are truncated\n' >&2
-  printf 'with an ellipsis if the JSON would exceed a few hundred words.\n' >&2
-  printf 'Never includes the artifact body.\n' >&2
+  printf 'Stdout JSON: br_id, verdict, attempt, flags, reasons, cause;\n' >&2
+  printf 'revisions when verdict=revise. cause is null on pass/revise;\n' >&2
+  printf 'on escalate it is policy (rubric/flags/attempt cap) or operational\n' >&2
+  printf '(reviewer output unparseable — re-run gate, do not surface to caller).\n' >&2
+  printf 'Reasons/revisions are truncated with an ellipsis if the JSON would\n' >&2
+  printf 'exceed a few hundred words. Never includes the artifact body.\n' >&2
   printf '\n' >&2
   printf 'Exit: 0 pass, 10 revise, 20 escalate; other nonzero is operational.\n' >&2
   printf 'A pass does NOT close the issue or authorize implementation —\n' >&2
@@ -1087,6 +1092,7 @@ verdict = d.get("verdict")
 flags = d.get("flags") or {}
 reasons = [str(x) for x in (d.get("reasons") or [])]
 revisions = [str(x) for x in (d.get("revisions") or [])]
+escalate_cause = d.get("cause") if d.get("cause") == "operational" else None
 need = ("destructive_scope", "scope_growth", "blocking_unknowns")
 norm = {}
 for k in need:
@@ -1096,15 +1102,22 @@ for k in need:
 forced = [k for k in need if norm[k] == "yes"]
 if forced:
     verdict = "escalate"
+    escalate_cause = "policy"
     note = "flag forced escalate: " + ", ".join(forced)
     if note not in reasons:
         reasons.append(note)
 
 if os.environ.get("GATE_PRIOR_REVISE") == "1" and verdict == "revise":
     verdict = "escalate"
+    escalate_cause = "policy"
     note = "attempt cap: a prior revise already exists (one revision max)"
     if note not in reasons:
         reasons.append(note)
+
+if verdict == "escalate" and escalate_cause is None:
+    escalate_cause = "policy"
+
+cause = escalate_cause if verdict == "escalate" else None
 
 attempt = int(os.environ["GATE_ATTEMPT"])
 br_id = os.environ["GATE_ID"]
@@ -1149,6 +1162,7 @@ def payload(rs, rvs):
         "attempt": attempt,
         "flags": norm,
         "reasons": rs,
+        "cause": cause,
     }
     if verdict == "revise":
         o["revisions"] = rvs
@@ -1277,7 +1291,7 @@ cmd_gate() {
       :
     fi
     if ! parsed="$(parse_gate_verdict < "$tmpd/out2")"; then
-      parsed='{"verdict":"escalate","reasons":["reviewer output unparseable after one retry"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
+      parsed='{"verdict":"escalate","cause":"operational","reasons":["reviewer output unparseable after one retry"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
     fi
   fi
 

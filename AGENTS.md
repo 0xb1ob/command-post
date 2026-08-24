@@ -140,10 +140,13 @@ intake; gate pass is quality only, never authorization.
 2. Researcher: `bin/cp dispatch --project NAME --br-id <research-id> --template research --task-file F --` frontier CLI ([Model routing](#model-routing)). Predeclared artifact: `state/artifacts/<research-id>/report.md` (`bin/cp artifact path`).
 3. Wait for the envelope ([muxa] mail; [templates/README.md](templates/README.md)). HARD RULE: workers never mail the findings body. A body in mail is a contract violation — do not act on it; capture a candidate.
 4. On envelope: `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
-5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate):
+5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate). Stdout JSON
+   includes `cause` on every verdict (`null` on pass/revise; `policy` or
+   `operational` on escalate — branch on this, not the reason prose):
    - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI.
    - **revise:** `muxa send` the researcher the reviewer's revisions. The tool enforces one revision max — a second revise becomes escalate. Researcher stays alive until pass.
-   - **escalate:** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cp artifact get`. Encoded in the gate: destructive/irreversible scope, scope growth beyond the classified project, blocking unknowns, gate fail after one revise.
+   - **escalate (`cause: policy`):** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cp artifact get`. Rubric flags (`destructive_scope`, `scope_growth`, `blocking_unknowns`), attempt cap after one revise, or reviewer verdict escalate.
+   - **escalate (`cause: operational`):** reviewer output unparseable after one retry — re-run `bin/cp gate` immediately; do not surface to the caller as a blocker.
 
 Context safety: the parent never reads artifact bodies. Never run `br show` /
 `br comments list` on artifact-bearing issues — `br show --json` inlines full
