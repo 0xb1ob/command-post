@@ -327,41 +327,28 @@ operator's answer clears it.
 
 ## Status block
 
-Every **operator-facing turn** ends with a **STATUS BLOCK**: three markdown
-tables, fixed order, **always rendered**. An absent table is ambiguous; use a
-`| — | none | … |` row when a section is empty.
+Every **operator-facing turn** ends with a **STATUS BLOCK**: four markdown tables,
+fixed order, **always rendered**. An absent table is ambiguous; use a
+`| — | none | … |` row when empty.
 
-**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries).
-**When omitted:** pure `[muxa]` wait turns with no outbound message.
+**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries). **When omitted:** pure `[muxa]` wait turns with no outbound message.
 
-Keep turns short: one or two sentences of prose (outcome headline, full PR URL),
-**then** the block. The block is the scannable WIP summary — it replaces buried in-progress prose; do not restate the same facts above it. Never paste worker dumps into the block; plain-language rows only.
+Keep turns short: one or two sentences of prose (outcome headline, full PR URL), **then** the block — the scannable WIP summary; do not restate facts above it. Never paste worker dumps into the block; plain-language rows only.
 
 ### Tables
 
 1. **In progress** — `Job`, `What`, `Worker`, `Repo`
-2. **Blocked** — `Job`, `What`, `Waiting on` (br dependency, gate, worker, CI —
-   **not** a human decision)
+2. **Blocked** — `Job`, `What`, `Waiting on` (br dependency, gate, worker, CI — **not** a human decision)
 3. **Awaiting you** — `Type`, `Decision needed`, `Why it matters`, `What it blocks`
+4. **Shipped** — `Job`, `What`, `PR` (full URL; not a bare number or slug)
 
-`Job` cells pair the br id with a short plain-language label
-(`command-post-lqn3 — pick hosting target`). **Self-describing rows:** never bare
-ids; the reader must not run `br show` to understand the block.
+`Job` cells pair br id with a plain-language label (`command-post-lqn3 — pick hosting target`). **Self-describing rows:** never bare ids — the reader must not run `br show`.
 
-**Route human blockers to table 3, not table 2.** `br dep` deferrals belong in
-**Blocked**. Work waiting on **your** answer (infra choice, scope call, gate
-escalate) belongs in **Awaiting you** even when br still lists the issue as
-dependency-blocked.
-**Human decision = Awaiting you only.** When your decision is the sole blocker,
-the job appears **only** in **Awaiting you** — never also in **Blocked** — with
-the job id in **What it blocks**; never duplicate the same human blockage across
-both tables.
-**Type** is required on every **Awaiting you** row: `approval` (ship/merge gate
-on finished verified work), `design` (scope/architecture choice authorizing new
-work), `authorization` (whether to start or prioritize work).
+**Route human blockers to table 3, not table 2.** `br dep` deferrals → **Blocked**; your answer (infra, scope, gate escalate) → **Awaiting you** even when dependency-blocked. **Human decision = Awaiting you only** — never also in **Blocked**; never duplicate across both. **Type** is required on every **Awaiting you** row: `approval` (merge gate on verified work), `design` (scope/architecture authorizing new work), `authorization` (start or prioritize).
+
+**Shipped bound:** jobs closed since the **previous status block** (after `br close` with PR URL), max **five** rows — not the closed backlog; skip jobs already in the prior Shipped table.
 
 Example (idle session):
-
 ```markdown
 ### In progress
 | Job | What | Worker | Repo |
@@ -377,6 +364,11 @@ Example (idle session):
 | Type | Decision needed | Why it matters | What it blocks |
 | --- | --- | --- | --- |
 | — | none | — | — |
+
+### Shipped
+| Job | What | PR |
+| --- | --- | --- |
+| — | none | — |
 ```
 
 This is not `bin/cp status` (live fleet snapshot). The parent **writes** this
