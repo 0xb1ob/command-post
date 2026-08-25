@@ -151,11 +151,20 @@ make_worker_shim() {
 
 make_worker_shim agent
 
+ensure_host_utils() {
+  mkdir -p "$TMP/host"
+  local c p
+  for c in rm mkdir mktemp git bash awk sed grep chmod printf python3; do
+    p="$(command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" ]] && ln -sf "$p" "$TMP/host/$c"
+  done
+}
+
 worker_host_path() {
   printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
     case "$d" in
-      "$TMP/shim"|/usr/bin|/bin) printf '%s:' "$d"; continue ;;
+      "$TMP/shim"|"$TMP/host") continue ;;
     esac
     [[ -x "$d/agent" || -x "$d/claude" || -x "$d/cursor-agent" ]] && continue
     printf '%s:' "$d"
@@ -163,9 +172,11 @@ worker_host_path() {
 }
 
 set_test_path() {
-  export PATH="$TMP/shim:$(worker_host_path):/usr/bin:/bin"
+  ensure_host_utils
+  export PATH="$TMP/shim:$TMP/host:$(worker_host_path)"
 }
 
+ensure_host_utils
 set_test_path
 
 printf 'do the work\n' > "$TMP/task.txt"

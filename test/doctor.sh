@@ -30,12 +30,21 @@ make_shim() {
   chmod +x "$TMP/shim/$name"
 }
 
+ensure_host_utils() {
+  mkdir -p "$TMP/host"
+  local c p
+  for c in rm mkdir mktemp bash awk sed grep chmod printf python3; do
+    p="$(command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" ]] && ln -sf "$p" "$TMP/host/$c"
+  done
+}
+
 # Host tools from real PATH except worker CLIs (empty shim dir only has our shims).
 host_path() {
   printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
     case "$d" in
-      "$TMP/shim"|"$TMP/host"|/usr/bin|/bin) printf '%s:' "$d"; continue ;;
+      "$TMP/shim"|"$TMP/host") continue ;;
     esac
     [[ -x "$d/agent" || -x "$d/claude" || -x "$d/cursor-agent" ]] && continue
     printf '%s:' "$d"
@@ -43,13 +52,15 @@ host_path() {
 }
 
 setup_path_no_workers() {
-  export PATH="$TMP/shim:$(host_path):/usr/bin:/bin"
+  ensure_host_utils
+  export PATH="$TMP/shim:$TMP/host:$(host_path)"
 }
 
 setup_path_with() {
   local name="$1"
   make_shim "$name"
-  export PATH="$TMP/shim:$(host_path):/usr/bin:/bin"
+  ensure_host_utils
+  export PATH="$TMP/shim:$TMP/host:$(host_path)"
 }
 
 # muxa/br/treehouse shims for doctor host section when real ones absent from trimmed path
