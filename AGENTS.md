@@ -105,7 +105,7 @@ Intake, classify, dispatch, wait, relay outcomes, teardown. Nothing else.
 - Classify (kind + delivery; pipeline vs single), match a project, clone into `projects/<name>` and register it
 - Record the job in br, then [Pre-dispatch](#pre-dispatch)
 - `bin/cp dispatch` — [First brief](#first-brief) lives in templates/; not muxa-parent's slim template, not a later `muxa send`
-- Relay outcomes; capture memory under `data/` (see Memory)
+- Relay outcomes; end every operator-facing turn with a [Status block](#status-block); capture memory under `data/` (see Memory)
 
 Never: read/write/explore project source; research or fetch URLs here (confirming a
 worker PR URL is allowed); commit `data/`, `projects/`, or `.beads/`; treat br as a
@@ -293,8 +293,62 @@ muxa kill NAME
 then `bin/cp jobs done <br-id>` (no `pr=`).
 
 Report outcomes and decisions with full PR URLs. Never paste worker dumps. Stop
-after two ping-pongs unless a decision is still open — it stays open until the
-answer itself closes it.
+after two ping-pongs unless a decision is still open — an open row in
+[Awaiting you](#status-block) counts as such a decision and stays open until the
+operator's answer clears it.
+
+## Status block
+
+Every **operator-facing turn** ends with a **STATUS BLOCK**: three markdown
+tables, fixed order, **always rendered**. An absent table is ambiguous; use a
+`| — | none | … |` row when a section is empty.
+
+**When required:** any message to the operator — after dispatch, while waiting,
+when relaying worker results, blockers, gate escalates, or session summaries.
+**When omitted:** turns that never reach the operator (pure wait on `[muxa]` mail
+with no outbound message). Once you speak to the operator, the block is mandatory
+even if everything is idle (explicit `none` rows).
+
+Keep turns short: one or two sentences of prose (outcome headline, full PR URL),
+**then** the block. The block is the scannable WIP summary — it replaces buried in-progress prose; do not restate the same facts above it. Never paste worker dumps into the block; plain-language rows only.
+
+### Tables
+
+1. **In progress** — `Job`, `What`, `Worker`, `Repo`
+2. **Blocked** — `Job`, `What`, `Waiting on` (br dependency, gate, worker, CI —
+   **not** a human decision)
+3. **Awaiting you** — `Decision needed`, `Why it matters`, `What it blocks`
+
+`Job` cells pair the br id with a short plain-language label
+(`command-post-lqn3 — pick hosting target`). **Self-describing rows:** never bare
+ids; the reader must not run `br show` to understand the block.
+
+**Route human blockers to table 3, not table 2.** `br dep` deferrals belong in
+**Blocked**. Work waiting on **your** answer (infra choice, scope call, gate
+escalate) belongs in **Awaiting you** even when br still lists the issue as
+dependency-blocked.
+
+Example (idle session):
+
+```markdown
+### In progress
+| Job | What | Worker | Repo |
+| --- | --- | --- | --- |
+| — | none | — | — |
+
+### Blocked
+| Job | What | Waiting on |
+| --- | --- | --- |
+| — | none | — |
+
+### Awaiting you
+| Decision needed | Why it matters | What it blocks |
+| --- | --- | --- |
+| — | none | — |
+```
+
+This is not `bin/cp status` (live fleet snapshot). The parent **writes** this
+block for the operator; it is not rendered by a command.
 
 ## Backlog (br)
 
