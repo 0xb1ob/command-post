@@ -130,6 +130,32 @@ cannot distinguish "still booting" from "genuinely dropped," so the verdict
 says so explicitly instead of guessing. The remedy is the same as
 `unconfirmed` — wait for `[muxa]` mail, never re-dispatch, never re-paste.
 
+## Stalled worker (empty composer)
+
+A different failure mode from never-ready (`[muxa] from=broker`) or
+receipt-unconfirmed: the child **did** become ready and the broker **did**
+accept the paste, but the Cursor CLI redrew its banner afterward and the
+composer ended up empty — the agent never received the brief as input. The
+vivid-fox incident sat idle for 24 minutes; every existing signal missed it:
+
+- Dispatch receipt is one-shot — a redraw that eats the paste after
+  `receipt=confirmed` is unobservable by design.
+- `bin/cp status` mapped `pane_state=idle` + open br to phase `waiting`,
+  identical to a healthy between-turn idle.
+- No never-ready mail fires — the pane was live.
+
+**Detection (slice 3):** `bin/cp status` adds phase `stalled` when the pane is
+idle, the br issue is still open/in_progress, and jobs.tsv `dispatched_at` is
+older than `CP_STATUS_STALL_SEC` (default 600s). Legacy rows without
+`dispatched_at` never stall. Advisory and read-only — no auto-restart, kill,
+or re-send.
+
+**Recovery that worked:** reassemble the substituted brief from the dispatch
+template (`{{PARENT}}`, `{{BRANCH}}`, `{{BR_ID}}`, `{{ARTIFACT_PATH}}`,
+`{{TASK}}`), then `muxa send --file` into the live pane. The pane, worktree,
+branch, and jobs.tsv row stay in place — no re-lease, no re-dispatch, no
+teardown. See AGENTS.md [Stalled worker](#stalled-worker).
+
 ## Teardown
 
 Plain `treehouse return` (no `--force`) prompts interactively. `--force` resets
