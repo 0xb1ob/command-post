@@ -138,7 +138,7 @@ if [[ -n "$stamp_before" && "$stamp_before" == "$stamp_after" ]]; then
 else
   fail "set preserves dispatched_at (before=$stamp_before after=$stamp_after)"
 fi
-"$CP" jobs reported cp-one >/dev/null
+reported_out="$("$CP" jobs reported cp-one 2>&1)"
 reported_json="$("$CP" jobs list --json)"
 if printf '%s\n' "$reported_json" | python3 -c '
 import json, sys, re
@@ -152,12 +152,22 @@ else
   fail "reported stamps reported_at: $reported_json"
 fi
 reported_once="$(printf '%s\n' "$reported_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["reported_at"])')"
-"$CP" jobs reported cp-one >/dev/null
+if printf '%s\n' "$reported_out" | grep -F -q "reported_at=$reported_once"; then
+  ok "reported confirmation echoes first stamp"
+else
+  fail "reported confirmation echoes first stamp (stdout=$reported_out stamp=$reported_once)"
+fi
+reported_again_out="$("$CP" jobs reported cp-one 2>&1)"
 reported_twice="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["reported_at"])')"
 if [[ "$reported_once" == "$reported_twice" ]]; then
   ok "reported is idempotent (preserves first stamp)"
 else
   fail "reported is idempotent (before=$reported_once after=$reported_twice)"
+fi
+if printf '%s\n' "$reported_again_out" | grep -F -q "reported_at=$reported_twice"; then
+  ok "reported confirmation echoes existing stamp on re-run"
+else
+  fail "reported confirmation echoes existing stamp on re-run (stdout=$reported_again_out stamp=$reported_twice)"
 fi
 set_after_report="$("$CP" jobs list --json | python3 -c 'import json,sys; r=json.load(sys.stdin)[0]; print(r.get("reported_at",""))')"
 "$CP" jobs set cp-one worker=crisp-oak >/dev/null
@@ -207,6 +217,17 @@ export BR_SHOW_CMD=true
 
 # whitespace in id refused
 expect_exit 1 "whitespace id refused" "$CP" jobs add "cp foo" worker=a worktree="$TMP/wt"
+
+# confirmation must not go empty when later rows follow the target in jobs.tsv
+"$CP" jobs add cp-before worker=before worktree="$TMP/wt" branch=feat/before >/dev/null
+"$CP" jobs add cp-after worker=after worktree="$TMP/wt" branch=feat/after >/dev/null
+before_out="$("$CP" jobs reported cp-before 2>&1)"
+before_stamp="$("$CP" jobs list --json | python3 -c 'import json,sys; print(next(r["reported_at"] for r in json.load(sys.stdin) if r["job"]=="cp-before"))')"
+if printf '%s\n' "$before_out" | grep -F -q "reported_at=$before_stamp"; then
+  ok "reported confirmation echoes stamp when target is not the last row"
+else
+  fail "reported confirmation when not last row (stdout=$before_out stamp=$before_stamp)"
+fi
 
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2

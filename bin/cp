@@ -735,7 +735,7 @@ jobs_rewrite() {
 
 jobs_stamp_reported() {
   local target="$1" f tmp line job worker worktree branch dispatched_at reported_at
-  local found=0 stamp
+  local found=0 stamp effective_reported_at=""
   stamp="$(jobs_dispatched_at_now)"
   f="$(jobs_file)"
   tmp="$(mktemp "${f}.XXXXXX")"
@@ -753,6 +753,7 @@ jobs_stamp_reported() {
       if [[ -z "$reported_at" ]]; then
         reported_at="$stamp"
       fi
+      effective_reported_at="$reported_at"
       jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
     done < "$f"
   fi
@@ -761,7 +762,7 @@ jobs_stamp_reported() {
     return 1
   fi
   mv "$tmp" "$f"
-  log "jobs reported $target reported_at=$reported_at"
+  log "jobs reported $target reported_at=$effective_reported_at"
 }
 
 resolve_worktree() {
