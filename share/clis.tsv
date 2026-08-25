@@ -1,0 +1,5 @@
+# argv0	muxa_kind	receipt
+# Supported worker CLIs. doctor, dispatch, and gate refuse argv0 not listed here.
+agent	cursor	branch-token
+cursor-agent	cursor	branch-token
+claude	claude	context-pct

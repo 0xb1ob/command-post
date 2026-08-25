@@ -111,6 +111,11 @@ lacks "muxa send --json <alias>" "first brief is not muxa send --json"
 lacks '`muxa jobs`' "does not resurrect muxa jobs"
 lacks '`muxa preflight`' "does not resurrect muxa preflight"
 
+lacks "The operator currently forbids the claude CLI for workers" "claude ban sentence is removed from AGENTS.md"
+has "data/routing.tsv" "playbook points at data/routing.tsv for routing"
+has "bin/cp doctor" "playbook mentions bin/cp doctor"
+has "missing CLI exits 2" "playbook documents pre-lease CLI probe"
+
 lines="$(wc -l < "$AGENTS" | tr -d ' ')"
 if [[ "$lines" -le 480 ]]; then
   ok "AGENTS.md is ≤480 lines (target ~400; got $lines)"

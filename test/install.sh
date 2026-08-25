@@ -61,6 +61,10 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
   && fail "hook script does not assume command-post ships bin/muxa" \
   || ok "hook script does not assume command-post ships bin/muxa"
 
+has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
+has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
+has "$INSTALL" 'data/routing.tsv' "install.sh scaffolds data/routing.tsv"
+
 if [[ "$failed" -eq 0 ]]; then
   printf '\n# %d tests passed\n' "$n"
   exit 0

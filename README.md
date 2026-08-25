@@ -24,7 +24,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 
 **Phase 1 — deps**
 
-1. Checks prerequisites: `git`, `curl`, `tmux` (muxa requires tmux)
+1. Checks prerequisites: `git`, `curl`, `tmux`, `python3` (`python3` is for `bin/cp` JSON/brief/gate/status — not required by muxa; see issue #27)
 2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes global skills on re-run; its installer stops/restarts the broker daemon in tmux), then verifies the `muxa` binary. muxa is one binary — the paste broker is `muxa broker start`, not a separate `muxa-broker` release asset. Without a running broker, `muxa send` exits non-zero and pastes nothing (fail-closed). The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
 3. Installs [`br`](https://github.com/Dicklesworthstone/beads_rust) (beads) with `--skip-skills`
 4. Installs [`treehouse`](https://github.com/kunchenguid/treehouse) for worktree leasing
@@ -52,7 +52,8 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`) |
+| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), CLI discovery (`doctor`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`) |
+| `share/clis.tsv` | yes | Supported worker CLI registry (argv0 → muxa kind → receipt strategy) |
 | `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook, artifact, gate, status) |
 | `test/fixtures/` | yes | Golden-file fixtures (`status/table.golden`; HTML snapshots are generated, not golden-filed) |
 | `reports/` | yes | Design research for this repo |
@@ -60,7 +61,7 @@ worker.
 | `scripts/muxa-hook.sh` | yes | Project hook script for root self-registration |
 | `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
 | `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
-| `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
+| `data/` | **no** | `data/projects.md`, `data/routing.tsv`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `state/` | **no** | Runtime jobs map (`state/jobs.tsv`: `#job`, `worker`, `worktree`, `branch`, optional `dispatched_at` stamped at dispatch); research artifacts (`state/artifacts/`) |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
@@ -77,7 +78,7 @@ Do not commit `data/`, `state/`, `projects/`, `.beads/`, or harness skill copies
 
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.
 
-Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Dispatch and mail
+Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Run `bin/cp doctor` after install to verify host tools and worker CLI routing. Dispatch and mail
 use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`. Before
 `muxa dispatch`, run `bin/cp check --project <name> <worktree>` (canonical clone,
 git preflight, promote-not-spawn occupancy via `muxa who --json` (`state=idle|busy|ghost`)). Idle worker on a held

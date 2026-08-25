@@ -438,6 +438,37 @@ ID5="$(br --db "$DB" create "gate-model" -t task -p 2 --json | python3 -c 'impor
 expect_exit 0 "gate --model is accepted" "$CP" gate "$ID5" --model composer-2.5-fast
 expect_exit 2 "gate without ID is usage" "$CP" gate
 expect_exit 2 "unknown flag is usage" "$CP" gate --nope "$ID"
+
+# missing agent without CP_GATE_CMD → exit 2
+unset CP_GATE_CMD
+ID6="$(br --db "$DB" create "gate-noagent" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID6" "$TMP/src.md" >/dev/null
+gate_path_no_agent() {
+  printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    [[ -x "$d/agent" ]] && continue
+    printf '%s:' "$d"
+  done | sed 's/:$//'
+}
+rc=0
+err="$(env PATH="$(gate_path_no_agent)" "$CP" gate "$ID6" 2>&1 >/dev/null)" || rc=$?
+if [[ "$rc" -eq 2 ]] && printf '%s\n' "$err" | grep -q "agent"; then
+  ok "gate without agent and without CP_GATE_CMD exits 2 naming agent"
+else
+  fail "gate missing agent (rc=$rc err=$(printf %q "$err"))"
+fi
+
+# CP_GATE_CMD still wins when agent missing from PATH
+export CP_GATE_CMD="$TMP/pass.sh"
+rc=0
+out="$("$CP" gate "$ID6")" || rc=$?
+if [[ "$rc" -eq 0 ]]; then
+  ok "CP_GATE_CMD wins when agent is not required"
+else
+  fail "CP_GATE_CMD wins (rc=$rc out=$(printf %q "$out"))"
+fi
+
+export CP_GATE_CMD="$TMP/pass.sh"
 help="$("$CP" gate --help 2>&1)" || true
 if printf '%s\n' "$help" | grep -q 'does NOT close the issue or authorize implementation'; then
   ok "help states pass does not close or authorize implementation"
