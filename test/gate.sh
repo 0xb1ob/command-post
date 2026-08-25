@@ -37,6 +37,7 @@ if ! command -v br >/dev/null 2>&1; then
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-gate.XXXXXX")"
+ORIG_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
 
 export CP_HOME="$TMP/home"
@@ -439,23 +440,30 @@ expect_exit 0 "gate --model is accepted" "$CP" gate "$ID5" --model composer-2.5-
 expect_exit 2 "gate without ID is usage" "$CP" gate
 expect_exit 2 "unknown flag is usage" "$CP" gate --nope "$ID"
 
-# missing agent without CP_GATE_CMD → exit 2
+# missing agent without CP_GATE_CMD → exit 2 (no worker CLI on isolated PATH)
 unset CP_GATE_CMD
 ID6="$(br --db "$DB" create "gate-noagent" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID6" "$TMP/src.md" >/dev/null
-gate_path_no_agent() {
-  printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+gate_isolated_path() {
+  mkdir -p "$TMP/host"
+  local c p
+  for c in rm mkdir mktemp bash awk sed grep chmod printf python3 br dirname readlink pwd tr; do
+    p="$(command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" && "$p" != "$TMP/host/$c" ]] && ln -sf "$p" "$TMP/host/$c"
+  done
+  printf '%s' "$ORIG_PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
-    [[ -x "$d/agent" ]] && continue
+    case "$d" in "$TMP/host"|"$TMP/shim") continue ;; esac
+    [[ -x "$d/agent" || -x "$d/claude" || -x "$d/cursor-agent" ]] && continue
     printf '%s:' "$d"
   done | sed 's/:$//'
 }
 rc=0
-err="$(env PATH="$(gate_path_no_agent)" "$CP" gate "$ID6" 2>&1 >/dev/null)" || rc=$?
-if [[ "$rc" -eq 2 ]] && printf '%s\n' "$err" | grep -q "agent"; then
-  ok "gate without agent and without CP_GATE_CMD exits 2 naming agent"
+err="$(env PATH="$TMP/host:$(gate_isolated_path)" "$CP" gate "$ID6" 2>&1 >/dev/null)" || rc=$?
+if [[ "$rc" -eq 2 ]] && printf '%s\n' "$err" | grep -q "Install one of:"; then
+  ok "gate without worker CLI exits 2 naming install targets"
 else
-  fail "gate missing agent (rc=$rc err=$(printf %q "$err"))"
+  fail "gate missing worker CLI (rc=$rc err=$(printf %q "$err"))"
 fi
 
 # CP_GATE_CMD still wins when agent missing from PATH

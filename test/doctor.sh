@@ -53,12 +53,14 @@ host_path() {
 }
 
 setup_path_no_workers() {
+  rm -f "$TMP/shim/agent" "$TMP/shim/claude" "$TMP/shim/cursor-agent"
   ensure_host_utils
   export PATH="$TMP/shim:$TMP/host:$(host_path)"
 }
 
 setup_path_with() {
   local name="$1"
+  rm -f "$TMP/shim/agent" "$TMP/shim/claude" "$TMP/shim/cursor-agent"
   make_shim "$name"
   ensure_host_utils
   export PATH="$TMP/shim:$TMP/host:$(host_path)"
@@ -119,6 +121,23 @@ else
   fail "claude-only shim matrix"
 fi
 
+# claude shim only → derived routing for all roles
+setup_path_with claude
+out="$("$CP" doctor --json 2>/dev/null)" || true
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+for role in ("researcher", "implementer", "gate-reviewer"):
+    r = d["roles"][role]
+    assert r["argv0"] == "claude", role
+    assert r["source"] == "derived", role
+    assert r["installed"] is True, role
+'; then
+  ok "claude-only host → all roles derived to claude"
+else
+  fail "claude-only derived routing"
+fi
+
 # routing.tsv researcher → claude
 mkdir -p "$CP_HOME/data"
 cat > "$CP_HOME/data/routing.tsv" <<'EOF'
@@ -156,7 +175,31 @@ else
   fail "shipped defaults in doctor JSON"
 fi
 
-# forbid row appears in JSON
+# forbid row excludes CLI from derivation
+rm -f "$CP_HOME/data/routing.tsv"
+cat > "$CP_HOME/data/routing.tsv" <<'EOF'
+forbid	claude
+EOF
+setup_path_no_workers
+make_shim cursor-agent
+make_shim claude
+export PATH="$TMP/shim:$TMP/host:$(host_path)"
+out="$("$CP" doctor --json 2>/dev/null)" || true
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert "claude" in d["forbid"]
+r = d["roles"]["implementer"]
+assert r["source"] == "derived"
+assert r["argv0"] == "cursor-agent"
+'; then
+  ok "forbid claude excludes it from derivation"
+else
+  fail "forbid excludes from derivation"
+fi
+
+# forbid row appears in JSON (agent installed, claude forbidden)
+setup_path_with agent
 cat > "$CP_HOME/data/routing.tsv" <<'EOF'
 forbid	claude
 EOF
@@ -169,6 +212,40 @@ assert "claude" in d["forbid"]
   ok "forbid claude appears in doctor JSON"
 else
   fail "forbid in doctor JSON"
+fi
+
+# zero worker CLIs → derived routing reports missing with install hint
+rm -f "$CP_HOME/data/routing.tsv"
+setup_path_no_workers
+out="$("$CP" doctor --json 2>/dev/null)" || true
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+r = d["roles"]["implementer"]
+assert r["source"] == "derived"
+assert r["installed"] is False
+assert any("agent" in m["what"] or "install one of" in m["fix"] for m in d["missing"])
+'; then
+  ok "no worker shims → derived source with missing install hint"
+else
+  fail "zero installed derived missing hint"
+fi
+
+# agent + claude installed, no routing → shipped (agent default installed)
+rm -f "$CP_HOME/data/routing.tsv"
+make_shim claude
+setup_path_with agent
+out="$("$CP" doctor --json 2>/dev/null)" || true
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+r = d["roles"]["researcher"]
+assert r["argv0"] == "agent"
+assert r["source"] == "shipped"
+'; then
+  ok "agent installed → shipped defaults unchanged"
+else
+  fail "agent installed keeps shipped defaults"
 fi
 
 if [[ "$failed" -ne 0 ]]; then

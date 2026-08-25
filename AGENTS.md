@@ -219,15 +219,7 @@ brief; jobs here always have a brief, so the path is `muxa dispatch`.
 
 ### Model routing
 
-Shipped defaults (when `data/routing.tsv` is absent):
-
-| Role | Default |
-| --- | --- |
-| researcher | `agent --model cursor-grok-4.6-high-fast` (frontier) |
-| implementer | `agent --model composer-2.5-fast` |
-| gate-reviewer | `composer-2.5-fast` (inside `bin/cp gate`; `--model` / `CP_GATE_CMD`) |
-
-Live routing is machine-local `data/routing.tsv` (gitignored; scaffolded by `bin/install.sh`). Per-job override is `bin/cp dispatch ... -- CMD...`. Operator CLI bans (`forbid` rows) live in that file, not here. `bin/cp doctor` lists host tools, installed worker CLIs, and effective routing. Dispatch probes the resolved worker argv[0] **before** lease and branch cut — missing CLI exits 2 with no orphan branch.
+Resolution order: explicit `-- CMD` override; then `data/routing.tsv` row; then **derived** from installed CLIs in `share/clis.tsv` (minus `forbid` rows). Error only when zero supported CLIs are installed (or all forbidden) — message names what to install. One installed CLI → all roles, no config. Shipped-default CLI installed → role defaults unchanged. Several installed → documented preference (`agent`, `cursor-agent`, `claude`). Model flags come from each CLI's `default_model` in `share/clis.tsv` at derivation time, not from the role. Dispatch prints resolved argv and `source=` (`override`|`routing`|`shipped`|`derived`) on stderr before lease. `bin/cp doctor` shows the same with `source=derived` when applicable. Per-job override: `bin/cp dispatch ... -- CMD...`. `CP_GATE_CMD` still wins for gate. Dispatch probes argv[0] before lease — missing CLI exits 2 with no orphan branch.
 
 ### First brief
 

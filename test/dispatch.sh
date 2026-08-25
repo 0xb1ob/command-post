@@ -275,10 +275,10 @@ expect_rc_msg 1 "project clone not at" "missing projects/<name> is refused" \
 reset_logs
 rm -f "$TMP/shim/agent" "$TMP/shim/claude" "$TMP/shim/cursor-agent"
 set_test_path
-expect_rc_msg 2 "worker CLI agent not on PATH" "missing agent exits 2 before lease" \
+expect_rc_msg 2 "Install one of:" "missing worker CLI names install targets" \
   "$CP" dispatch --project demo --br-id job-nocli --task-file "$TMP/task.txt"
 set_test_path
-expect_rc_msg 2 "bin/cp doctor" "missing agent names bin/cp doctor" \
+expect_rc_msg 2 "bin/cp doctor" "missing worker CLI names bin/cp doctor" \
   "$CP" dispatch --project demo --br-id job-nocli2 --task-file "$TMP/task.txt"
 if grep -q 'get' "$CP_TEST_TH_LOG"; then
   fail "missing agent does not call treehouse get"
@@ -315,18 +315,77 @@ rm -f "$TMP/shim/claude"
 make_worker_shim agent
 set_test_path
 
-# claude only, no override: still exit 2 (no silent fallback to claude)
+# claude only, no override: derived to claude (no config)
 reset_logs
 rm -f "$TMP/shim/agent"
 make_worker_shim claude
 set_test_path
-expect_rc_msg 2 "worker CLI agent not on PATH" "claude on PATH without override still requires routed agent" \
-  "$CP" dispatch --project demo --br-id job-nofb --task-file "$TMP/task.txt"
-if grep -q 'get' "$CP_TEST_TH_LOG"; then
-  fail "no-fallback does not lease"
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-clonly" >/dev/null
+LEASE_CLONLY="$(cd "$TMP/leased-clonly" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CLONLY"
+printf 'Branch: job-clonly\n' > "$CP_TEST_TAIL"
+out="$("$CP" dispatch --project demo --br-id job-clonly --task-file "$TMP/task.txt" \
+  2>"$TMP/err.clonly")" || fail "claude-only derived dispatch (err=$(cat "$TMP/err.clonly"))"
+if grep -F -q -- "claude" "$CP_TEST_DISPATCH_LOG" \
+  && grep -F -q -- "source=derived" "$TMP/err.clonly"; then
+  ok "claude-only host derives to claude without config"
 else
-  ok "no silent fallback to claude (no lease)"
+  fail "claude-only derived (log=$(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.clonly"))"
 fi
+make_worker_shim agent
+set_test_path
+
+# claude + agent, no agent in shipped path but both shims: agent wins shipped
+reset_logs
+make_worker_shim agent
+make_worker_shim claude
+set_test_path
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-both" >/dev/null
+LEASE_BOTH="$(cd "$TMP/leased-both" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_BOTH"
+printf 'Branch: job-both\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-both --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.both" || fail "both CLIs dispatch (err=$(cat "$TMP/err.both"))"
+if grep -F -q -- "agent --model composer-2.5-fast" "$CP_TEST_DISPATCH_LOG" \
+  && grep -F -q -- "source=shipped" "$TMP/err.both"; then
+  ok "agent installed keeps shipped defaults when claude also present"
+else
+  fail "shipped wins when agent installed ($(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.both"))"
+fi
+
+# agent missing, claude + cursor-agent: preference picks agent's sibling cursor-agent
+reset_logs
+rm -f "$TMP/shim/agent"
+make_worker_shim cursor-agent
+make_worker_shim claude
+set_test_path
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-pref" >/dev/null
+LEASE_PREF="$(cd "$TMP/leased-pref" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_PREF"
+printf 'Branch: job-pref\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-pref --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.pref" || fail "preference dispatch (err=$(cat "$TMP/err.pref"))"
+if grep -F -q -- "cursor-agent --model composer-2.5-fast" "$CP_TEST_DISPATCH_LOG" \
+  && grep -F -q -- "source=derived" "$TMP/err.pref"; then
+  ok "preference order picks cursor-agent over claude"
+else
+  fail "preference order ($(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.pref"))"
+fi
+make_worker_shim agent
+set_test_path
+
+# forbid excludes claude from derivation
+reset_logs
+mkdir -p "$CP_HOME/data"
+cat > "$CP_HOME/data/routing.tsv" <<'EOF'
+forbid	claude
+EOF
+rm -f "$TMP/shim/agent" "$TMP/shim/cursor-agent"
+make_worker_shim claude
+set_test_path
+expect_rc_msg 2 "Install one of:" "forbid claude with only claude installed fails closed" \
+  "$CP" dispatch --project demo --br-id job-forbid --task-file "$TMP/task.txt"
+rm -f "$CP_HOME/data/routing.tsv"
 make_worker_shim agent
 set_test_path
 

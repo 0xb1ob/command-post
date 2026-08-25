@@ -1,5 +1,7 @@
-# argv0	muxa_kind	receipt
+# argv0	muxa_kind	receipt	default_model
 # Supported worker CLIs. doctor, dispatch, and gate refuse argv0 not listed here.
-agent	cursor	branch-token
-cursor-agent	cursor	branch-token
+# default_model: composed at derivation time (--model FLAG); empty = CLI default, no flag.
+# Derivation preference when several are installed (after shipped-default check): agent, cursor-agent, claude.
+agent	cursor	branch-token	composer-2.5-fast
+cursor-agent	cursor	branch-token	composer-2.5-fast
 claude	claude	context-pct
