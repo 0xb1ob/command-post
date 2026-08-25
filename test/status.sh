@@ -647,6 +647,140 @@ else
   fail "html: mixed fleet shows both time_source markers"
 fi
 
+# --- stalled detection (idle + open br + old dispatched_at) ---------------
+STALL_TMP="$TMP/stall"
+mkdir -p "$STALL_TMP/wt-stalled" "$STALL_TMP/wt-fresh" "$STALL_TMP/wt-legacy" "$STALL_TMP/wt-recent"
+cat > "$STALL_TMP/who.json" <<EOF
+[
+  {"name":"root-pane","id":"r1","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"$TMP/home"},
+  {"name":"stalled-worker","id":"w1","parent":"root-pane","kind":"cursor","state":"idle","pane":"%2","session":null,"cwd":"$STALL_TMP/wt-stalled"},
+  {"name":"fresh-worker","id":"w2","parent":"root-pane","kind":"cursor","state":"idle","pane":"%3","session":null,"cwd":"$STALL_TMP/wt-fresh"},
+  {"name":"legacy-worker","id":"w3","parent":"root-pane","kind":"cursor","state":"idle","pane":"%4","session":null,"cwd":"$STALL_TMP/wt-legacy"},
+  {"name":"recent-worker","id":"w4","parent":"root-pane","kind":"cursor","state":"idle","pane":"%5","session":null,"cwd":"$STALL_TMP/wt-recent"}
+]
+EOF
+cat > "$STALL_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+cat > "$STALL_TMP/br-list.json" <<'EOF'
+[
+  {"id":"job-stalled","title":"Stalled job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
+  {"id":"job-fresh","title":"Fresh idle job","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
+  {"id":"job-legacy","title":"Legacy idle job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
+  {"id":"job-recent","title":"Recent idle job","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]}
+]
+EOF
+cat > "$STALL_TMP/jobs.tsv" <<EOF
+#job	worker	worktree	branch
+job-stalled	stalled-worker	$STALL_TMP/wt-stalled	job-stalled	2026-08-24T15:50:00Z
+job-fresh	fresh-worker	$STALL_TMP/wt-fresh	job-fresh	2026-08-24T16:05:00Z
+job-legacy	legacy-worker	$STALL_TMP/wt-legacy	job-legacy
+job-recent	recent-worker	$STALL_TMP/wt-recent	job-recent	2026-08-24T16:09:00Z
+EOF
+cat > "$STALL_TMP/br-list-stub.sh" <<EOF
+#!/bin/sh
+exec cat "$STALL_TMP/br-list.json"
+EOF
+chmod +x "$STALL_TMP/br-list-stub.sh"
+
+STALL_JSON="$(
+  CP_JOBS_FILE="$STALL_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $STALL_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $STALL_TMP/broker.json" \
+  BR_LIST_CMD="$STALL_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  CP_STATUS_STALL_SEC=600 \
+  "$CP" status --json
+)"
+
+assert_stall() {
+  local label="$1" script="$2"
+  if printf '%s' "$STALL_JSON" | python3 -c "$script"; then
+    ok "$label"
+  else
+    fail "$label"
+  fi
+}
+
+assert_stall "stalled: idle + open br + dispatched_at older than threshold -> stalled" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "stalled-worker")
+assert n["phase"] == "stalled", n
+assert n["glyph"] == "cross", n
+assert n["time_source"] == "dispatched_at", n
+'
+
+assert_stall "stalled: fresh idle row within threshold stays waiting" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "fresh-worker")
+assert n["phase"] == "waiting", n
+assert n["glyph"] == "hollow", n
+'
+
+assert_stall "stalled: legacy row without dispatched_at stays waiting" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "legacy-worker")
+assert n["phase"] == "waiting", n
+assert n["time_source"] == "br_updated_at", n
+'
+
+assert_stall "stalled: idle but recently dispatched stays waiting" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "recent-worker")
+assert n["phase"] == "waiting", n
+assert n["time_source"] == "dispatched_at", n
+'
+
+STALL_TABLE="$(
+  CP_JOBS_FILE="$STALL_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $STALL_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $STALL_TMP/broker.json" \
+  BR_LIST_CMD="$STALL_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  CP_STATUS_STALL_SEC=600 \
+  "$CP" status
+)"
+if printf '%s\n' "$STALL_TABLE" | python3 -c '
+import sys
+lines = [l for l in sys.stdin.read().splitlines() if l.startswith("stalled-worker")]
+assert len(lines) == 1, lines
+parts = lines[0].split()
+assert parts[0] == "stalled-worker"
+assert parts[2] == "stalled", parts
+'; then
+  ok "stalled: human table shows stalled phase"
+else
+  fail "stalled: human table shows stalled phase (out: $STALL_TABLE)"
+fi
+
+STALL_HTML="$(
+  CP_JOBS_FILE="$STALL_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $STALL_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $STALL_TMP/broker.json" \
+  BR_LIST_CMD="$STALL_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  CP_STATUS_STALL_SEC=600 \
+  "$CP" status --html
+)"
+if printf '%s' "$STALL_HTML" | python3 -c '
+import json, re, sys
+doc = sys.stdin.read()
+assert "phase-stalled" in doc
+m = re.search(r"<script type=\"application/json\" id=\"fleet-data\">(.*?)</script>", doc, re.S)
+payload = json.loads(m.group(1))
+n = next(x for x in payload["nodes"] if x["id"] == "stalled-worker")
+assert n["phase"] == "stalled"
+assert n["glyph"] == "cross"
+'; then
+  ok "stalled: html rendering includes stalled phase and glyph"
+else
+  fail "stalled: html rendering includes stalled phase and glyph"
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
   exit 1

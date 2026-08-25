@@ -67,7 +67,7 @@ capability.
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
   is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` emits a self-contained snapshot page with the JSON embedded. Age prefers `jobs.tsv` `dispatched_at` (`time_source: dispatched_at`); legacy 4-column rows fall back to `br.updated_at`.
+  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` emits a self-contained snapshot page with the JSON embedded. Age prefers `jobs.tsv` `dispatched_at` (`time_source: dispatched_at`); legacy 4-column rows fall back to `br.updated_at`. Phase `stalled` = idle + open br + old stamped `dispatched_at` ([Stalled worker](#stalled-worker)).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
@@ -262,7 +262,7 @@ A small job is not an exception. Auto-restart is still forbidden.
 ### While they run
 
 - Never poll. Wake on `[muxa]` mail — including `[muxa] from=broker`.
-- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop.
+- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phase `stalled` in `bin/cp status` is advisory — see [Stalled worker](#stalled-worker).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control (`muxa kill NAME|ID`) — never a chat message. Do not kill a worker that is still on a job.
 - Freeze scope once validation starts. New scope is a new job. You never do the worker job.
@@ -270,6 +270,12 @@ A small job is not an exception. Auto-restart is still forbidden.
 - Receipt is [First brief](#first-brief), not dispatch JSON.
 - Fan out: dispatch every independent job immediately. Serialize only for a real dependency or shared mutable state. Same-file edits are not a reason to wait. Dispatch **commands** sequentially (or `--name`); independence is jobs running at once, not concurrent `muxa dispatch` processes.
 - The chosen delivery path owns the rigor. Do not invent extra review gates. Never merge red.
+
+### Stalled worker
+
+Cursor can eat a paste after `receipt=confirmed`, leaving an empty composer; `bin/cp status` shows phase `stalled` when idle + open br + stamped `dispatched_at` older than `CP_STATUS_STALL_SEC` (default 600s; legacy rows without a stamp never stall). Advisory only — no auto-restart, kill, or re-send.
+
+**Recovery:** confirm with `muxa tail NAME`; reassemble `templates/brief-<kind>.md` (`{{PARENT}}`, `{{BRANCH}}`, `{{BR_ID}}`, `{{ARTIFACT_PATH}}`, `{{TASK}}` from jobs.tsv + br/task); `muxa send --file brief.txt ALIAS` into the live pane. No re-lease, re-dispatch, or teardown — [why](reports/dispatch-hardening.md#stalled-worker-empty-composer).
 
 ### Teardown
 
