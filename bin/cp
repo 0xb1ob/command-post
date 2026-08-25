@@ -1032,6 +1032,33 @@ artifact_add() {
   python3 -c 'import json,sys; json.dump({"br_id": sys.argv[1], "bytes": int(sys.argv[2])}, sys.stdout); print()' "$id" "$bytes"
 }
 
+# Refuse teardown when the artifact dir holds files artifact add did not mirror.
+artifact_teardown_guard() {
+  local id="$1" art extras=() entry
+  art="$(artifact_dir "$id")"
+  [[ -d "$art" ]] || return 0
+  while IFS= read -r -d '' entry; do
+    [[ "$entry" == "$art/report.md" ]] && continue
+    extras+=("$entry")
+  done < <(find "$art" -mindepth 1 -print0 2>/dev/null)
+  if [[ ${#extras[@]} -eq 0 ]]; then
+    return 0
+  fi
+  printf '[cp] fail: artifact dir has unmirrored files — keep the lease; mirror with artifact add or copy out before teardown:\n' >&2
+  for entry in "${extras[@]}"; do
+    printf '  %s\n' "$entry" >&2
+  done
+  exit 1
+}
+
+artifact_teardown_clean() {
+  local id="$1" art
+  art="$(artifact_dir "$id")"
+  if [[ -n "$art" && "$art" == "$CP_HOME/state/artifacts/$id" && -d "$art" ]]; then
+    rm -rf "$art"
+  fi
+}
+
 artifact_get() {
   local id db raw
   [[ $# -ge 1 ]] || die_artifact_usage "get needs ID"
@@ -3549,6 +3576,7 @@ cmd_teardown() {
   [[ -d "$worktree" ]] || die "worktree $worktree is missing — keep the lease; restore the path or fix the jobs row"
 
   assert_clean_and_pushed "$worktree" "$branch"
+  artifact_teardown_guard "$id"
   treehouse_return_force "$worktree"
 
   if worker_in_who "$worker"; then
@@ -3558,12 +3586,7 @@ cmd_teardown() {
 
   jobs_done "$id" >&2
 
-  # Artifact job: teardown cleans $CP_HOME/state/artifacts/<id>.
-  local art
-  art="$(artifact_dir "$id")"
-  if [[ -n "$art" && "$art" == "$CP_HOME/state/artifacts/$id" && -d "$art" ]]; then
-    rm -rf "$art"
-  fi
+  artifact_teardown_clean "$id"
 }
 
 main() {

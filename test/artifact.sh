@@ -145,6 +145,17 @@ expect_exit 2 "add without file is usage" "$CP" artifact add "$ID"
 expect_exit 1 "whitespace id refused" "$CP" artifact path "cp foo"
 expect_exit 1 "add missing file fails" "$CP" artifact add "$ID" "$TMP/missing.md"
 
+# Workers may write companion files beside the mirrored report path (see teardown guard).
+companion_id="t-companion"
+companion_report="$("$CP" artifact path "$companion_id")"
+companion_dir="$(dirname "$companion_report")"
+printf 'companion data\n' > "$companion_dir/summary.tsv"
+if [[ -f "$companion_dir/summary.tsv" && -d "$companion_dir" ]]; then
+  ok "companion files may live beside artifact report path"
+else
+  fail "companion files may live beside artifact report path"
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
   exit 1
