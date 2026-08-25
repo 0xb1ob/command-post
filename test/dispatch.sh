@@ -155,7 +155,7 @@ worker_host_path() {
   printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
     case "$d" in
-      "$TMP/shim") continue ;;
+      "$TMP/shim"|/usr/bin|/bin) printf '%s:' "$d"; continue ;;
     esac
     [[ -x "$d/agent" || -x "$d/claude" || -x "$d/cursor-agent" ]] && continue
     printf '%s:' "$d"
