@@ -8,6 +8,7 @@
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
 #   bin/cp teardown ID
+#   bin/cp status [--json]
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
@@ -69,11 +70,22 @@
 # Escalate cause: policy = rubric/flags/attempt cap; operational =
 # reviewer output unparseable after one retry (re-run gate, not a blocker).
 #
+# status: single-shot, read-only fleet snapshot ({v,generated_at,home,
+# broker,nodes[],edges[]}, or a human table without --json). Composes
+# muxa who --json, muxa broker status (exactly once; degrades to ok:false
+# rather than aborting), state/jobs.tsv, and br list --json (never br
+# show/comments list — AGENTS.md:151-153). Join precedence per pane:
+# jobs.worker -> jobs.worktree -> git branch == a br id -> untracked.
+# Timestamp is br.updated_at (time_source:"br_updated_at"), a known-
+# approximate proxy; no dispatched_at column here (slice 2). Read-only:
+# mutates nothing, never calls tmux.
+#
 # Command-post home is this script's repo root (from the script location,
 # never $PWD), or CP_HOME if set.
 # Test overrides (not for live dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
-# BR_SHOW_CMD, BR_DB, CP_JOBS_FILE, CP_GATE_CMD. dispatch/teardown call
-# muxa and treehouse on PATH so tests can shim them.
+# BR_SHOW_CMD, BR_DB, CP_JOBS_FILE, CP_GATE_CMD, MUXA_BROKER_CMD,
+# BR_LIST_CMD, CP_STATUS_NOW. dispatch/teardown call muxa and treehouse on
+# PATH so tests can shim them.
 set -euo pipefail
 
 PROG="${BASH_SOURCE[0]}"
@@ -89,7 +101,22 @@ usage() {
   printf '       %s gate ID [--model M]\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       %s teardown ID\n' "$PROG" >&2
+  printf '       %s status [--json]\n' "$PROG" >&2
   exit 2
+}
+
+usage_status() {
+  printf 'usage: %s status [--json]\n' "$PROG" >&2
+  printf '\n' >&2
+  printf 'Single-shot, read-only fleet snapshot composed from muxa who --json,\n' >&2
+  printf 'muxa broker status, state/jobs.tsv, and br list --json. No server, no\n' >&2
+  printf 'daemon, no new persistence. Never calls tmux; never br show.\n' >&2
+  printf '\n' >&2
+  printf 'Test overrides (not for live use): MUXA_WHO_CMD, MUXA_BROKER_CMD,\n' >&2
+  printf 'BR_LIST_CMD, CP_JOBS_FILE, BR_DB, CP_STATUS_NOW.\n' >&2
+  printf '\n' >&2
+  printf 'Stdout (--json): {v, generated_at, home, broker, nodes[], edges[]}.\n' >&2
+  printf 'Without --json: a human-readable table with a BROKER summary line.\n' >&2
 }
 
 usage_dispatch() {
@@ -1348,6 +1375,571 @@ cmd_jobs() {
   esac
 }
 
+# status: single-shot read-only fleet snapshot. Composes muxa who --json,
+# muxa broker status, state/jobs.tsv (via jobs_list_json), and br list --json
+# (never br show — that inlines comment bodies). No server, no daemon, no
+# new persistence, no tmux. See status_assemble for the phase/glyph matrix
+# and the join precedence (jobs.worker -> jobs.worktree -> branch==br-id).
+status_who_json() {
+  local -a who_cmd
+  if [[ -n "${MUXA_WHO_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    who_cmd=($MUXA_WHO_CMD)
+  else
+    require_muxa_bin
+    who_cmd=(muxa who --json)
+  fi
+  local out
+  if ! out="$("${who_cmd[@]}")"; then
+    die "muxa who --json failed"
+  fi
+  printf '%s' "$out" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    rows = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: muxa who --json: not JSON\n")
+    sys.exit(2)
+if not isinstance(rows, list):
+    sys.stderr.write("[cp] error: muxa who --json: expected an array\n")
+    sys.exit(2)
+out = []
+for r in rows:
+    if not isinstance(r, dict):
+        sys.stderr.write("[cp] error: muxa who --json: expected objects\n")
+        sys.exit(2)
+    name = r.get("name")
+    state = r.get("state")
+    if not name or not state:
+        sys.stderr.write("[cp] error: muxa who --json: missing name or state\n")
+        sys.exit(2)
+    out.append({
+        "name": str(name),
+        "id": r.get("id"),
+        "parent": r.get("parent"),
+        "kind": r.get("kind"),
+        "state": str(state),
+        "pane": r.get("pane"),
+        "cwd": r.get("cwd"),
+    })
+json.dump(out, sys.stdout)
+'
+}
+
+# Broker degrades gracefully: a failed call or unparseable output becomes
+# {"ok": false} — nodes are still emitted (never abort the snapshot for a
+# down broker). Exactly one invocation per snapshot.
+status_broker_json() {
+  local -a broker_cmd
+  if [[ -n "${MUXA_BROKER_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    broker_cmd=($MUXA_BROKER_CMD)
+  else
+    broker_cmd=(muxa broker status)
+  fi
+  local out rc=0
+  out="$("${broker_cmd[@]}" 2>/dev/null)" || rc=$?
+  if [[ "$rc" -ne 0 || -z "$out" ]]; then
+    printf '{"ok": false}'
+    return 0
+  fi
+  printf '%s' "$out" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    d = None
+if not isinstance(d, dict):
+    json.dump({"ok": False}, sys.stdout)
+else:
+    if "ok" not in d:
+        d["ok"] = True
+    json.dump(d, sys.stdout)
+'
+}
+
+# BR_LIST_CMD replaces the "br --db $db" prefix only (mirrors BR_SHOW_CMD);
+# the real, varying subcommand+flags are appended at each call site, so one
+# override serves both the broad open/in_progress list and the targeted
+# `-s closed` lookup — a test stub dispatches on the trailing args it sees.
+status_br_prefix() {
+  if [[ -n "${BR_LIST_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    BR_PREFIX=($BR_LIST_CMD)
+  else
+    require_br
+    local db
+    db="$(resolve_beads_db)"
+    BR_PREFIX=(br --db "$db")
+  fi
+}
+
+status_normalize_br_list() {
+  python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    rows = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: br list --json: not JSON\n")
+    sys.exit(2)
+if not isinstance(rows, list):
+    sys.stderr.write("[cp] error: br list --json: expected an array\n")
+    sys.exit(2)
+out = []
+for r in rows:
+    if not isinstance(r, dict):
+        sys.stderr.write("[cp] error: br list --json: expected objects\n")
+        sys.exit(2)
+    rid = r.get("id")
+    if not rid:
+        sys.stderr.write("[cp] error: br list --json: missing id\n")
+        sys.exit(2)
+    out.append({
+        "id": str(rid),
+        "title": r.get("title"),
+        "status": r.get("status"),
+        "updated_at": r.get("updated_at"),
+        "labels": r.get("labels") if isinstance(r.get("labels"), list) else [],
+    })
+json.dump(out, sys.stdout)
+'
+}
+
+# Best-effort git branch per distinct pane cwd (join step 3: branch == br
+# id). command-post's to call, not muxa's — never tmux. Non-git or
+# unreadable cwds are simply absent from the map.
+status_branch_map() {
+  local who="$1"
+  local -a cwds=()
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    cwds+=("$line")
+  done < <(printf '%s' "$who" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+seen = set()
+for r in rows:
+    cwd = r.get("cwd")
+    if cwd and cwd not in seen:
+        seen.add(cwd)
+        print(cwd)
+')
+  local cwd branch pairs first
+  pairs="{"
+  first=1
+  if [[ ${#cwds[@]} -gt 0 ]]; then
+    for cwd in "${cwds[@]}"; do
+      branch=""
+      if [[ -d "$cwd" ]]; then
+        branch="$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        if [[ -z "$branch" ]]; then
+          branch="$(git -C "$cwd" branch --show-current 2>/dev/null || true)"
+        fi
+      fi
+      [[ -n "$branch" ]] || continue
+      if [[ "$first" -eq 0 ]]; then
+        pairs+=","
+      fi
+      first=0
+      pairs+="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]) + ": " + json.dumps(sys.argv[2]))' "$cwd" "$branch")"
+    done
+  fi
+  pairs+="}"
+  printf '%s' "$pairs"
+}
+
+# Candidate ids for the targeted `-s closed` lookup: any jobs.tsv job id, or
+# any branch-fallback candidate, not already present in the broad
+# open/in_progress list. Skipped entirely (no second br call) when empty.
+status_candidate_closed_ids() {
+  local jobs_json="$1" br_open_json="$2" branches_json="$3"
+  python3 -c '
+import json, sys
+jobs = json.loads(sys.argv[1])
+br_open = json.loads(sys.argv[2])
+branches = json.loads(sys.argv[3])
+open_ids = {r["id"] for r in br_open}
+cand = set()
+for j in jobs:
+    jid = j.get("job")
+    if jid and jid not in open_ids:
+        cand.add(jid)
+for b in branches.values():
+    if b and b not in open_ids:
+        cand.add(b)
+for c in sorted(cand):
+    print(c)
+' "$jobs_json" "$br_open_json" "$branches_json"
+}
+
+# The join + phase/glyph derivation. See the header comment for the full
+# matrix; the orchestrator (parent-null pane, never br-joined by design) is
+# judged on activity alone rather than falling into "untracked".
+status_assemble() {
+  local who="$1" broker="$2" jobs="$3" br_open="$4" br_closed="$5" branches="$6" generated_at="$7" home="$8"
+  python3 -c '
+import json, sys
+
+who = json.loads(sys.argv[1])
+broker = json.loads(sys.argv[2])
+jobs = json.loads(sys.argv[3])
+br_open = json.loads(sys.argv[4])
+br_closed = json.loads(sys.argv[5])
+branches = json.loads(sys.argv[6])
+generated_at = sys.argv[7]
+home = sys.argv[8]
+
+issues = {}
+for r in br_open:
+    issues[r["id"]] = r
+for r in br_closed:
+    issues.setdefault(r["id"], r)
+
+jobs_by_worker = {}
+jobs_by_worktree = {}
+jobs_by_id = {}
+for j in jobs:
+    jobs_by_id[j["job"]] = j
+    if j.get("worker"):
+        jobs_by_worker[j["worker"]] = j
+    if j.get("worktree"):
+        jobs_by_worktree[j["worktree"]] = j
+
+def label_value(labels, prefix):
+    for l in labels or []:
+        if isinstance(l, str) and l.startswith(prefix):
+            return l[len(prefix):]
+    return None
+
+def basename(cwd):
+    if not cwd:
+        return None
+    return cwd.rstrip("/").split("/")[-1] or None
+
+PHASE_GLYPH = {
+    "working": "dot",
+    "waiting": "hollow",
+    "done": "check",
+    "ghost": "warn",
+    "orphaned": "warn",
+    "untracked": "dash",
+}
+
+def normalize_pane_state(state):
+    # unknown/missing state fails toward "needs attention", not silently
+    # miscategorized as active.
+    return state if state in ("busy", "idle", "ghost") else "ghost"
+
+def normalize_br_status(status):
+    return status if status in ("open", "in_progress", "closed") else None
+
+def derive_phase(role, pane_state, br_status):
+    if role == "orchestrator" and br_status is None:
+        if pane_state == "ghost":
+            return "ghost"
+        return "working" if pane_state == "busy" else "waiting"
+    if pane_state == "ghost":
+        return "ghost"
+    if pane_state == "gone":
+        return "done" if br_status == "closed" else "orphaned"
+    if br_status == "closed":
+        return "done"
+    if br_status in ("in_progress", "open"):
+        return "working" if pane_state == "busy" else "waiting"
+    return "untracked"
+
+nodes = []
+claimed_ids = set()
+root_id = None
+
+for p in who:
+    name = p["name"]
+    parent = p.get("parent")
+    role = "orchestrator" if parent is None else "worker"
+    if role == "orchestrator" and root_id is None:
+        root_id = name
+
+    pane_state = normalize_pane_state(p.get("state"))
+    cwd = p.get("cwd")
+
+    bid = None
+    joined_via = None
+    issue = None
+    job = None
+
+    cand = jobs_by_worker.get(name)
+    if cand and cand.get("job") in issues:
+        job, bid, joined_via = cand, cand["job"], "jobs.worker"
+        issue = issues[bid]
+
+    if issue is None and cwd:
+        cand = jobs_by_worktree.get(cwd)
+        if cand and cand.get("job") in issues:
+            job, bid, joined_via = cand, cand["job"], "jobs.worktree"
+            issue = issues[bid]
+
+    branch = job.get("branch") if job else None
+
+    if issue is None and cwd:
+        br_cand = branches.get(cwd)
+        if br_cand and br_cand in issues:
+            bid, joined_via, issue = br_cand, "branch", issues[br_cand]
+            branch = br_cand
+
+    br_status = normalize_br_status(issue.get("status") if issue else None)
+    title = issue.get("title") if issue else None
+    labels = issue.get("labels") if issue else []
+    project = label_value(labels, "project:") or basename(cwd)
+    delivery = label_value(labels, "delivery:")
+    kind_label = label_value(labels, "kind:")
+    timestamp = issue.get("updated_at") if issue else None
+    time_source = "br_updated_at" if issue else None
+
+    phase = derive_phase(role, pane_state, br_status)
+
+    if bid:
+        claimed_ids.add(bid)
+
+    nodes.append({
+        "id": name,
+        "alias": name,
+        "role": role,
+        "cli": p.get("kind"),
+        "pane": p.get("pane"),
+        "pane_state": pane_state,
+        "drawing": False,
+        "br_id": bid,
+        "br_status": br_status,
+        "phase": phase,
+        "glyph": PHASE_GLYPH[phase],
+        "title": title,
+        "project": project,
+        "cwd": cwd,
+        "branch": branch,
+        "kind": kind_label,
+        "delivery": delivery,
+        "timestamp": timestamp,
+        "time_source": time_source,
+        "joined_via": joined_via,
+        "_pane_raw": p.get("pane"),
+    })
+
+# Every in_progress issue with no live pane becomes an orphaned node so
+# in-flight work can never silently vanish from the view.
+for iid, issue in issues.items():
+    if issue.get("status") != "in_progress" or iid in claimed_ids:
+        continue
+    job = jobs_by_id.get(iid)
+    worker = job.get("worker") if job else None
+    node_id = worker or iid
+    labels = issue.get("labels") or []
+    cwd = job.get("worktree") if job else None
+    nodes.append({
+        "id": node_id,
+        "alias": node_id,
+        "role": "worker",
+        "cli": None,
+        "pane": None,
+        "pane_state": "gone",
+        "drawing": False,
+        "br_id": iid,
+        "br_status": "in_progress",
+        "phase": "orphaned",
+        "glyph": PHASE_GLYPH["orphaned"],
+        "title": issue.get("title"),
+        "project": label_value(labels, "project:") or basename(cwd),
+        "cwd": cwd,
+        "branch": (job.get("branch") if job else None) or iid,
+        "kind": label_value(labels, "kind:"),
+        "delivery": label_value(labels, "delivery:"),
+        "timestamp": issue.get("updated_at"),
+        "time_source": "br_updated_at",
+        "joined_via": None,
+        "_pane_raw": None,
+    })
+
+pane_to_alias = {n["_pane_raw"]: n["alias"] for n in nodes if n.get("_pane_raw")}
+raw_drawing = broker.get("drawing") if isinstance(broker, dict) else None
+resolved_drawing = []
+drawing_raw_set = set()
+if isinstance(raw_drawing, list):
+    for pid in raw_drawing:
+        drawing_raw_set.add(pid)
+        resolved_drawing.append(pane_to_alias.get(pid, pid))
+
+for n in nodes:
+    n["drawing"] = bool(n.get("_pane_raw")) and n["_pane_raw"] in drawing_raw_set
+    del n["_pane_raw"]
+
+broker_out = {"ok": bool(isinstance(broker, dict) and broker.get("ok"))}
+if broker_out["ok"]:
+    broker_out.update({
+        "pid": broker.get("pid"),
+        "queued": broker.get("queued"),
+        "done": broker.get("done"),
+        "failed": broker.get("failed"),
+        "socket": broker.get("socket"),
+        "drawing": resolved_drawing,
+    })
+
+node_ids = {n["id"] for n in nodes}
+edges = []
+for p in who:
+    parent = p.get("parent")
+    if parent and parent in node_ids and p["name"] in node_ids:
+        edges.append({"from": parent, "to": p["name"], "source": "muxa.parent"})
+
+if root_id and root_id in node_ids:
+    for n in nodes:
+        if n["phase"] == "orphaned":
+            edges.append({"from": root_id, "to": n["id"], "source": "inferred"})
+
+result = {
+    "v": 1,
+    "generated_at": generated_at,
+    "home": home,
+    "broker": broker_out,
+    "nodes": nodes,
+    "edges": edges,
+}
+json.dump(result, sys.stdout)
+' "$who" "$broker" "$jobs" "$br_open" "$br_closed" "$branches" "$generated_at" "$home"
+}
+
+status_render_table() {
+  python3 -c '
+import datetime, json, sys
+
+data = json.load(sys.stdin)
+broker = data.get("broker") or {}
+if broker.get("ok"):
+    drawing = ",".join(broker.get("drawing") or []) or "-"
+    print("BROKER ok queued=%s done=%s failed=%s drawing=%s" % (
+        broker.get("queued"), broker.get("done"), broker.get("failed"), drawing))
+else:
+    print("BROKER degraded (unavailable) -- nodes below may be stale")
+print()
+
+def parse_ts(s):
+    # br timestamps carry fractional seconds; generated_at/CP_STATUS_NOW do not.
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.datetime.strptime(s, fmt).replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+def age(ts, now_s):
+    if not ts or not now_s:
+        return "-"
+    t = parse_ts(ts)
+    now = parse_ts(now_s)
+    if t is None or now is None:
+        return "-"
+    delta = max(0, int((now - t).total_seconds()))
+    if delta < 60:
+        return "%ds" % delta
+    if delta < 3600:
+        return "%dm" % (delta // 60)
+    if delta < 86400:
+        return "%dh" % (delta // 3600)
+    return "%dd" % (delta // 86400)
+
+now_s = data.get("generated_at")
+fmt = "%-16s %-12s %-10s %-8s %-16s %-6s %s"
+print(fmt % ("ALIAS", "ROLE", "PHASE", "CLI", "PROJECT", "AGE", "TITLE"))
+for n in data.get("nodes", []):
+    print(fmt % (
+        n.get("alias") or "-",
+        n.get("role") or "-",
+        n.get("phase") or "-",
+        n.get("cli") or "-",
+        n.get("project") or "-",
+        age(n.get("timestamp"), now_s),
+        n.get("title") or "-",
+    ))
+'
+}
+
+cmd_status() {
+  local json=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json=1
+        shift
+        ;;
+      -h|--help)
+        usage_status
+        exit 2
+        ;;
+      *)
+        die_usage "unknown status arg $1"
+        ;;
+    esac
+  done
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for status)\n' >&2
+    exit 2
+  fi
+
+  local who_json broker_json jobs_json
+  who_json="$(status_who_json)"
+  broker_json="$(status_broker_json)"
+  jobs_json="$(jobs_list_json)"
+
+  local -a BR_PREFIX=()
+  status_br_prefix
+  local br_open_raw br_open_json
+  if ! br_open_raw="$("${BR_PREFIX[@]}" list --json)"; then
+    die "br list --json failed"
+  fi
+  br_open_json="$(printf '%s' "$br_open_raw" | status_normalize_br_list)"
+
+  local branches_json
+  branches_json="$(status_branch_map "$who_json")"
+
+  local -a cand_ids=()
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    cand_ids+=("$line")
+  done < <(status_candidate_closed_ids "$jobs_json" "$br_open_json" "$branches_json")
+
+  local br_closed_json='[]'
+  if [[ ${#cand_ids[@]} -gt 0 ]]; then
+    local -a closed_args=(list -s closed --json)
+    local id
+    for id in "${cand_ids[@]}"; do
+      closed_args+=(--id "$id")
+    done
+    local br_closed_raw
+    if ! br_closed_raw="$("${BR_PREFIX[@]}" "${closed_args[@]}")"; then
+      die "br list -s closed --json failed"
+    fi
+    br_closed_json="$(printf '%s' "$br_closed_raw" | status_normalize_br_list)"
+  fi
+
+  local generated_at="${CP_STATUS_NOW:-}"
+  if [[ -z "$generated_at" ]]; then
+    generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
+
+  local result
+  result="$(status_assemble "$who_json" "$broker_json" "$jobs_json" "$br_open_json" "$br_closed_json" "$branches_json" "$generated_at" "$CP_HOME")"
+
+  if [[ "$json" -eq 1 ]]; then
+    printf '%s\n' "$result"
+  else
+    printf '%s' "$result" | status_render_table
+  fi
+}
+
 require_treehouse() {
   if ! command -v treehouse >/dev/null 2>&1; then
     printf '[cp] error: treehouse not on PATH — run bin/install.sh\n' >&2
@@ -1932,11 +2524,15 @@ main() {
       shift
       cmd_teardown "$@"
       ;;
+    status)
+      shift
+      cmd_status "$@"
+      ;;
     -h|--help)
       usage
       ;;
     *)
-      die_usage "unknown command $1 (want: check, jobs, artifact, gate, dispatch, or teardown)"
+      die_usage "unknown command $1 (want: check, jobs, artifact, gate, dispatch, teardown, or status)"
       ;;
   esac
 }
