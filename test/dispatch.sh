@@ -108,6 +108,9 @@ case "$cmd" in
     if [ -n "${CP_TEST_DISPATCH_CWD:-}" ]; then
       cwd="$CP_TEST_DISPATCH_CWD"
     fi
+    if [ -n "${CP_TEST_DISPATCH_WARN:-}" ]; then
+      printf '%s\n' "$CP_TEST_DISPATCH_WARN" >&2
+    fi
     [ -n "$name" ] || name="swift-oak"
     printf '{"name":"%s","id":"abc","pane":"%%1","cwd":"%s","state":"dispatched","from":"test-parent","to":"%s"}\n' \
       "$name" "$cwd" "$name"
@@ -196,7 +199,7 @@ reset_logs() {
   rm -f "$CP_TEST_BRIEF_COPY"
   printf '[]\n' > "$CP_TEST_WHO"
   : > "$CP_TEST_TAIL"
-  unset CP_TEST_DISPATCH_CWD || true
+  unset CP_TEST_DISPATCH_CWD CP_TEST_DISPATCH_WARN || true
   rm -f "$CP_JOBS_FILE"
 }
 
@@ -688,6 +691,33 @@ if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
 else
   ok "check failure does not call muxa dispatch"
 fi
+
+# dispatch stderr occupancy warning vs empty who roster → fail closed
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-warn" >/dev/null
+LEASE_WARN="$(cd "$TMP/leased-warn" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_WARN"
+printf '[]\n' > "$CP_TEST_WHO"
+export CP_TEST_DISPATCH_WARN="muxa: warning: cwd $LEASE_WARN already has live worker lunar-wolf"
+expect_rc_msg 1 "omits that worker" \
+  "dispatch occupancy warning with absent roster is refused" \
+  "$CP" dispatch --project demo --br-id job-warn --task-file "$TMP/task.txt"
+if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
+  ok "occupancy contradiction reached muxa dispatch after check"
+else
+  fail "occupancy contradiction should call muxa dispatch"
+fi
+if grep -q "return --force $LEASE_WARN" "$CP_TEST_TH_LOG"; then
+  ok "occupancy contradiction returns the lease"
+else
+  fail "occupancy contradiction returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
+fi
+if "$CP" jobs list --json 2>/dev/null | python3 -c 'import json,sys; assert not any(r["job"]=="job-warn" for r in json.load(sys.stdin))'; then
+  ok "occupancy contradiction does not jobs add"
+else
+  fail "occupancy contradiction should not jobs add"
+fi
+unset CP_TEST_DISPATCH_WARN
 
 # cwd mismatch: dispatch succeeded, do not return the lease
 reset_logs

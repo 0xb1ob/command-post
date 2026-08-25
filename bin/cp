@@ -525,6 +525,45 @@ check_occupancy() {
   log "clear: no other live registered worker on the given worktree(s)"
 }
 
+# muxa dispatch warns on stderr when cwd is occupied; muxa who --json can omit
+# that worker (muxa#121). Fail closed on the contradiction (command-post#77).
+dispatch_occupancy_warning_contradiction() {
+  local stderr_file="$1"
+  local warned="" line name
+  local -a who_cmd
+
+  warned="$(grep -Eo 'already has live worker [^[:space:]]+' "$stderr_file" 2>/dev/null | head -n1 | sed 's/.*already has live worker //' || true)"
+  [[ -n "$warned" ]] || return 0
+
+  if [[ -n "${MUXA_WHO_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    who_cmd=($MUXA_WHO_CMD)
+  else
+    who_cmd=(muxa who --json)
+  fi
+
+  local who_out parsed
+  if ! who_out="$("${who_cmd[@]}")"; then
+    printf '[cp] error: muxa who --json failed while checking dispatch occupancy warning\n' >&2
+    return 1
+  fi
+  if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
+    return 1
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    IFS=$'\t' read -r name _ _ _ <<< "$line"
+    if [[ "$name" == "$warned" ]]; then
+      return 0
+    fi
+  done <<< "$parsed"
+
+  printf '[cp] fail: muxa dispatch warns cwd already has live worker %s but muxa who --json omits that worker\n' "$warned" >&2
+  printf '[cp] contradicting signals — roster absence is not proof the worker is dead; inspect with muxa tail %s before proceeding\n' "$warned" >&2
+  return 1
+}
+
 cmd_check() {
   local project=""
   local -a worktrees=()
@@ -3450,11 +3489,17 @@ cmd_dispatch() {
   dispatch_cmd+=(--cwd "$wt" --brief-file "$brief_out" --)
   dispatch_cmd+=("${agent_cmd[@]}")
 
-  local out
-  if ! out="$("${dispatch_cmd[@]}")"; then
-    rm -f "$brief_out"
+  local out dispatch_err
+  dispatch_err="$(mktemp)"
+  if ! out="$("${dispatch_cmd[@]}" 2>"$dispatch_err")"; then
+    rm -f "$brief_out" "$dispatch_err"
     die "muxa dispatch failed — returned the lease; do not retry from this command (never-ready is orchestrator mail)"
   fi
+  if ! dispatch_occupancy_warning_contradiction "$dispatch_err"; then
+    rm -f "$brief_out" "$dispatch_err"
+    die "occupancy contradiction — returned the lease; inspect with muxa tail before retry"
+  fi
+  rm -f "$dispatch_err"
   rm -f "$brief_out"
   # Exit 0: the pane exists and the brief is queued. Never return the lease
   # from here — even if JSON parse or jobs add fails.
