@@ -2042,496 +2042,93 @@ for n in data.get("nodes", []):
 '
 }
 
+# Read tracked dashboard assets (Nocturne + fleet layout + shared renderer).
+status_dashboard_assets() {
+  local asset_dir="$ROOT/lib/status"
+  local f
+  for f in nocturne.css fleet-dashboard.css dashboard.js; do
+    if [[ ! -f "$asset_dir/$f" ]]; then
+      die "missing dashboard asset: $asset_dir/$f"
+    fi
+  done
+  STATUS_DASHBOARD_CSS="$(cat "$asset_dir/nocturne.css" "$asset_dir/fleet-dashboard.css")"
+  STATUS_DASHBOARD_JS="$(cat "$asset_dir/dashboard.js")"
+}
+
 # Self-contained HTML snapshot: embeds the JSON payload verbatim; client-side
 # JS reads that blob and renders — no recomputation, no external resources.
 status_render_html() {
   local payload="$1"
+  status_dashboard_assets
+  STATUS_DASHBOARD_CSS="$STATUS_DASHBOARD_CSS" \
+  STATUS_DASHBOARD_JS="$STATUS_DASHBOARD_JS" \
   python3 -c '
-import json, sys
+import json, os, sys
 
 payload = sys.argv[1]
-# Validate once so corrupt embeds fail loudly; render still uses the verbatim string.
-json.loads(payload)
+css = os.environ["STATUS_DASHBOARD_CSS"]
+js = os.environ["STATUS_DASHBOARD_JS"]
 
-# Breakout-safe embed: JSON parse treats \/ like / in strings.
+json.loads(payload)
 safe = payload.replace("</", "<\\/")
 
-doc = """<!DOCTYPE html>
+doc = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Command Post Fleet Status</title>
 <style>
-:root {
-  color-scheme: light dark;
-  --bg: #f4f4f5;
-  --fg: #18181b;
-  --muted: #71717a;
-  --border: #d4d4d8;
-  --card: #ffffff;
-  --warn-bg: #fef3c7;
-  --warn-fg: #92400e;
-  --phase-working: #16a34a;
-  --phase-waiting: #ca8a04;
-  --phase-stalled: #dc2626;
-  --phase-held: #0891b2;
-  --phase-done: #059669;
-  --phase-warn: #d97706;
-  --phase-untracked: #71717a;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #18181b;
-    --fg: #fafafa;
-    --muted: #a1a1aa;
-    --border: #3f3f46;
-    --card: #27272a;
-    --warn-bg: #422006;
-    --warn-fg: #fcd34d;
-    --phase-working: #4ade80;
-    --phase-waiting: #facc15;
-    --phase-stalled: #f87171;
-    --phase-held: #22d3ee;
-    --phase-done: #34d399;
-    --phase-warn: #fb923c;
-    --phase-untracked: #a1a1aa;
-  }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--fg);
-  line-height: 1.5;
-  padding: 1.25rem;
-}
-h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
-.meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
-.note { font-size: 0.8125rem; color: var(--muted); margin: 0.25rem 0 1rem; }
-.broker {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-family: ui-monospace, monospace;
-  font-size: 0.875rem;
-}
-.broker.degraded {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-color: var(--phase-warn);
-}
-section { margin-bottom: 1.5rem; }
-section h2 { font-size: 1rem; margin: 0 0 0.5rem; }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  font-size: 0.875rem;
-}
-th, td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-th { background: var(--bg); font-weight: 600; }
-tr:last-child td { border-bottom: none; }
-.glyph {
-  display: inline-block;
-  width: 1.25rem;
-  text-align: center;
-  font-weight: bold;
-}
-.phase-working .glyph { color: var(--phase-working); }
-.phase-waiting .glyph { color: var(--phase-waiting); }
-.phase-stalled .glyph { color: var(--phase-stalled); }
-.phase-held .glyph { color: var(--phase-held); }
-.phase-done .glyph { color: var(--phase-done); }
-.phase-ghost .glyph, .phase-orphaned .glyph { color: var(--phase-warn); }
-.phase-untracked .glyph { color: var(--phase-untracked); }
-.phase-label { font-size: 0.75rem; color: var(--muted); }
-.age-proxy { font-size: 0.75rem; color: var(--muted); display: block; }
-.edges { list-style: none; padding: 0; margin: 0; }
-.edges li {
-  font-family: ui-monospace, monospace;
-  font-size: 0.875rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border);
-}
-.edges li:last-child { border-bottom: none; }
-.edge-inferred { color: var(--muted); font-size: 0.75rem; }
+{css}
 </style>
 </head>
-<body>
-<div id="app"></div>
-<script type="application/json" id="fleet-data">__FLEET_JSON__</script>
+<body class="fleet-dashboard">
+<div id="error-banner" class="error-banner hidden" role="alert"></div>
+<div id="app"><p class="text-muted" style="padding:var(--space-4)">Loading fleet status&hellip;</p></div>
+<script type="application/json" id="fleet-data">{safe}</script>
 <script>
-(function () {
-  var GLYPH = { dot: "\\u25cf", hollow: "\\u25d0", ring: "\\u25c9", cross: "\\u2717", check: "\\u2713", warn: "\\u26a0", dash: "\\u25cb" };
-  var TIME_SOURCE_LABEL = {
-    dispatched_at: "jobs.tsv dispatched_at (exact job start, stamped at bin/cp dispatch)",
-    br_updated_at: "br.updated_at (approximate dispatch proxy for legacy rows, not exact job start)"
-  };
-
-  function parseTs(s) {
-    if (!s) return null;
-    var t = Date.parse(s);
-    return isNaN(t) ? null : t;
-  }
-
-  function age(ts, nowMs) {
-    if (!ts || !nowMs) return "-";
-    var delta = Math.max(0, Math.floor((nowMs - ts) / 1000));
-    if (delta < 60) return delta + "s";
-    if (delta < 3600) return Math.floor(delta / 60) + "m";
-    if (delta < 86400) return Math.floor(delta / 3600) + "h";
-    return Math.floor(delta / 86400) + "d";
-  }
-
-  function esc(s) {
-    if (s == null) return "-";
-    var d = document.createElement("div");
-    d.textContent = String(s);
-    return d.innerHTML;
-  }
-
-  var raw = document.getElementById("fleet-data").textContent;
-  var data = JSON.parse(raw);
-  var app = document.getElementById("app");
-  var nowMs = parseTs(data.generated_at);
-
-  var html = "<h1>Command Post Fleet</h1>";
-  html += "<div class=\\"meta\\">Snapshot: " + esc(data.generated_at) + " &middot; home: " + esc(data.home) + "</div>";
-  html += "<p class=\\"note\\">Age column uses <code>time_source</code> from the payload: <code>dispatched_at</code> (exact job start) when the runtime row was stamped at dispatch, or <code>br_updated_at</code> (approximate proxy) for legacy 4-column rows without a stamp.</p>";
-
-  var broker = data.broker || {};
-  if (broker.ok) {
-    var drawing = (broker.drawing && broker.drawing.length) ? broker.drawing.join(", ") : "-";
-    html += "<div class=\\"broker\\">BROKER ok queued=" + esc(broker.queued) +
-      " done=" + esc(broker.done) + " failed=" + esc(broker.failed) +
-      " drawing=" + esc(drawing) + "</div>";
-  } else {
-    html += "<div class=\\"broker degraded\\">BROKER degraded (unavailable) &mdash; nodes below may be stale</div>";
-  }
-
-  html += "<section><h2>Nodes</h2><table><thead><tr>" +
-    "<th></th><th>Alias</th><th>Role</th><th>Phase</th><th>CLI</th><th>Project</th><th>Age</th><th>Title</th>" +
-    "</tr></thead><tbody>";
-
-  (data.nodes || []).forEach(function (n) {
-    var phase = n.phase || "untracked";
-    var g = GLYPH[n.glyph] || GLYPH.dash;
-    var ts = parseTs(n.timestamp);
-    var ageStr = age(ts, nowMs);
-    var ageCell = esc(ageStr);
-    if (n.time_source) {
-      ageCell += "<span class=\\"age-proxy\\" title=\\"" + esc(TIME_SOURCE_LABEL[n.time_source] || n.time_source) + "\\">via " + esc(n.time_source) + "</span>";
-    }
-    html += "<tr class=\\"phase-" + esc(phase) + "\\">" +
-      "<td><span class=\\"glyph\\">" + g + "</span></td>" +
-      "<td>" + esc(n.alias) + "</td>" +
-      "<td>" + esc(n.role) + "</td>" +
-      "<td>" + esc(phase) + "<span class=\\"phase-label\\"> " + esc(n.glyph) + "</span></td>" +
-      "<td>" + esc(n.cli) + "</td>" +
-      "<td>" + esc(n.project) + "</td>" +
-      "<td>" + ageCell + "</td>" +
-      "<td>" + esc(n.title) + "</td></tr>";
-  });
-  html += "</tbody></table></section>";
-
-  html += "<section><h2>Edges</h2>";
-  var edges = data.edges || [];
-  if (!edges.length) {
-    html += "<p class=\\"meta\\">(none)</p>";
-  } else {
-    html += "<ul class=\\"edges\\">";
-    edges.forEach(function (e) {
-      var inferred = e.source === "inferred" ? " <span class=\\"edge-inferred\\">(inferred)</span>" : "";
-      html += "<li>" + esc(e.from) + " &rarr; " + esc(e.to) + inferred + "</li>";
-    });
-    html += "</ul>";
-  }
-  html += "</section>";
-
-  app.innerHTML = html;
-})();
+{js}
+CPStatusDashboard.boot({{ live: false }});
 </script>
 </body>
 </html>
 """
-
-sys.stdout.write(doc.replace("__FLEET_JSON__", safe))
+sys.stdout.write(doc)
 ' "$payload"
 }
 
 # Live dashboard shell: same CSS/render JS as --html, but polls GET /api/status
 # every 10s (bgr3 broker interval). Shows a visible banner on fetch failure.
 status_render_html_live() {
+  status_dashboard_assets
+  STATUS_DASHBOARD_CSS="$STATUS_DASHBOARD_CSS" \
+  STATUS_DASHBOARD_JS="$STATUS_DASHBOARD_JS" \
   python3 -c '
-import sys
+import os, sys
 
-doc = """<!DOCTYPE html>
+css = os.environ["STATUS_DASHBOARD_CSS"]
+js = os.environ["STATUS_DASHBOARD_JS"]
+
+doc = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Command Post Fleet Status</title>
 <style>
-:root {
-  color-scheme: light dark;
-  --bg: #f4f4f5;
-  --fg: #18181b;
-  --muted: #71717a;
-  --border: #d4d4d8;
-  --card: #ffffff;
-  --warn-bg: #fef3c7;
-  --warn-fg: #92400e;
-  --phase-working: #16a34a;
-  --phase-waiting: #ca8a04;
-  --phase-stalled: #dc2626;
-  --phase-held: #0891b2;
-  --phase-done: #059669;
-  --phase-warn: #d97706;
-  --phase-untracked: #71717a;
-  --err-bg: #fecaca;
-  --err-fg: #991b1b;
-  --err-border: #dc2626;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #18181b;
-    --fg: #fafafa;
-    --muted: #a1a1aa;
-    --border: #3f3f46;
-    --card: #27272a;
-    --warn-bg: #422006;
-    --warn-fg: #fcd34d;
-    --phase-working: #4ade80;
-    --phase-waiting: #facc15;
-    --phase-stalled: #f87171;
-    --phase-held: #22d3ee;
-    --phase-done: #34d399;
-    --phase-warn: #fb923c;
-    --phase-untracked: #a1a1aa;
-    --err-bg: #450a0a;
-    --err-fg: #fca5a5;
-    --err-border: #f87171;
-  }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--fg);
-  line-height: 1.5;
-  padding: 1.25rem;
-}
-h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
-.meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
-.note { font-size: 0.8125rem; color: var(--muted); margin: 0.25rem 0 1rem; }
-.broker {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-family: ui-monospace, monospace;
-  font-size: 0.875rem;
-}
-.broker.degraded {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-color: var(--phase-warn);
-}
-.error-banner {
-  background: var(--err-bg);
-  color: var(--err-fg);
-  border: 1px solid var(--err-border);
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-}
-.error-banner.hidden { display: none; }
-section { margin-bottom: 1.5rem; }
-section h2 { font-size: 1rem; margin: 0 0 0.5rem; }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  overflow: hidden;
-  font-size: 0.875rem;
-}
-th, td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-th { background: var(--bg); font-weight: 600; }
-tr:last-child td { border-bottom: none; }
-.glyph {
-  display: inline-block;
-  width: 1.25rem;
-  text-align: center;
-  font-weight: bold;
-}
-.phase-working .glyph { color: var(--phase-working); }
-.phase-waiting .glyph { color: var(--phase-waiting); }
-.phase-stalled .glyph { color: var(--phase-stalled); }
-.phase-held .glyph { color: var(--phase-held); }
-.phase-done .glyph { color: var(--phase-done); }
-.phase-ghost .glyph, .phase-orphaned .glyph { color: var(--phase-warn); }
-.phase-untracked .glyph { color: var(--phase-untracked); }
-.phase-label { font-size: 0.75rem; color: var(--muted); }
-.age-proxy { font-size: 0.75rem; color: var(--muted); display: block; }
-.edges { list-style: none; padding: 0; margin: 0; }
-.edges li {
-  font-family: ui-monospace, monospace;
-  font-size: 0.875rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border);
-}
-.edges li:last-child { border-bottom: none; }
-.edge-inferred { color: var(--muted); font-size: 0.75rem; }
+{css}
 </style>
 </head>
-<body>
+<body class="fleet-dashboard">
 <div id="error-banner" class="error-banner hidden" role="alert"></div>
-<div id="app"><p class="meta">Loading fleet status&hellip;</p></div>
+<div id="app"><p class="text-muted" style="padding:var(--space-4)">Loading fleet status&hellip;</p></div>
 <script>
-(function () {
-  var REFRESH_MS = 10000;
-  var GLYPH = { dot: "\\u25cf", hollow: "\\u25d0", ring: "\\u25c9", cross: "\\u2717", check: "\\u2713", warn: "\\u26a0", dash: "\\u25cb" };
-  var TIME_SOURCE_LABEL = {
-    dispatched_at: "jobs.tsv dispatched_at (exact job start, stamped at bin/cp dispatch)",
-    br_updated_at: "br.updated_at (approximate dispatch proxy for legacy rows, not exact job start)"
-  };
-
-  function parseTs(s) {
-    if (!s) return null;
-    var t = Date.parse(s);
-    return isNaN(t) ? null : t;
-  }
-
-  function age(ts, nowMs) {
-    if (!ts || !nowMs) return "-";
-    var delta = Math.max(0, Math.floor((nowMs - ts) / 1000));
-    if (delta < 60) return delta + "s";
-    if (delta < 3600) return Math.floor(delta / 60) + "m";
-    if (delta < 86400) return Math.floor(delta / 3600) + "h";
-    return Math.floor(delta / 86400) + "d";
-  }
-
-  function esc(s) {
-    if (s == null) return "-";
-    var d = document.createElement("div");
-    d.textContent = String(s);
-    return d.innerHTML;
-  }
-
-  function renderFleet(data) {
-    var app = document.getElementById("app");
-    var nowMs = parseTs(data.generated_at);
-    var html = "<h1>Command Post Fleet</h1>";
-    html += "<div class=\\"meta\\">Live &middot; " + esc(data.generated_at) + " &middot; home: " + esc(data.home) + "</div>";
-    html += "<p class=\\"note\\">Refreshes every 10s via <code>/api/status</code>. Age column uses <code>time_source</code> from the payload.</p>";
-
-    var broker = data.broker || {};
-    if (broker.ok) {
-      var drawing = (broker.drawing && broker.drawing.length) ? broker.drawing.join(", ") : "-";
-      html += "<div class=\\"broker\\">BROKER ok queued=" + esc(broker.queued) +
-        " done=" + esc(broker.done) + " failed=" + esc(broker.failed) +
-        " drawing=" + esc(drawing) + "</div>";
-    } else {
-      html += "<div class=\\"broker degraded\\">BROKER degraded (unavailable) &mdash; nodes below may be stale</div>";
-    }
-
-    html += "<section><h2>Nodes</h2><table><thead><tr>" +
-      "<th></th><th>Alias</th><th>Role</th><th>Phase</th><th>CLI</th><th>Project</th><th>Age</th><th>Title</th>" +
-      "</tr></thead><tbody>";
-
-    (data.nodes || []).forEach(function (n) {
-      var phase = n.phase || "untracked";
-      var g = GLYPH[n.glyph] || GLYPH.dash;
-      var ts = parseTs(n.timestamp);
-      var ageStr = age(ts, nowMs);
-      var ageCell = esc(ageStr);
-      if (n.time_source) {
-        ageCell += "<span class=\\"age-proxy\\" title=\\"" + esc(TIME_SOURCE_LABEL[n.time_source] || n.time_source) + "\\">via " + esc(n.time_source) + "</span>";
-      }
-      html += "<tr class=\\"phase-" + esc(phase) + "\\">" +
-        "<td><span class=\\"glyph\\">" + g + "</span></td>" +
-        "<td>" + esc(n.alias) + "</td>" +
-        "<td>" + esc(n.role) + "</td>" +
-        "<td>" + esc(phase) + "<span class=\\"phase-label\\"> " + esc(n.glyph) + "</span></td>" +
-        "<td>" + esc(n.cli) + "</td>" +
-        "<td>" + esc(n.project) + "</td>" +
-        "<td>" + ageCell + "</td>" +
-        "<td>" + esc(n.title) + "</td></tr>";
-    });
-    html += "</tbody></table></section>";
-
-    html += "<section><h2>Edges</h2>";
-    var edges = data.edges || [];
-    if (!edges.length) {
-      html += "<p class=\\"meta\\">(none)</p>";
-    } else {
-      html += "<ul class=\\"edges\\">";
-      edges.forEach(function (e) {
-        var inferred = e.source === "inferred" ? " <span class=\\"edge-inferred\\">(inferred)</span>" : "";
-        html += "<li>" + esc(e.from) + " &rarr; " + esc(e.to) + inferred + "</li>";
-      });
-      html += "</ul>";
-    }
-    html += "</section>";
-    app.innerHTML = html;
-  }
-
-  function showError(msg) {
-    var banner = document.getElementById("error-banner");
-    banner.textContent = msg;
-    banner.classList.remove("hidden");
-  }
-
-  function hideError() {
-    document.getElementById("error-banner").classList.add("hidden");
-  }
-
-  function refresh() {
-    fetch("/api/status")
-      .then(function (r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        hideError();
-        renderFleet(data);
-      })
-      .catch(function (err) {
-        showError("Unable to refresh fleet status: " + (err.message || String(err)) +
-          ". The server may have stopped or status --json failed.");
-      });
-  }
-
-  refresh();
-  setInterval(refresh, REFRESH_MS);
-})();
+{js}
+CPStatusDashboard.boot({{ live: true }});
 </script>
 </body>
 </html>
 """
-
 sys.stdout.write(doc)
 '
 }
