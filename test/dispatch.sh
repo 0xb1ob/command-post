@@ -163,7 +163,7 @@ worker_host_path() {
 }
 
 set_test_path() {
-  export PATH="$TMP/shim:$(worker_host_path)"
+  export PATH="$TMP/shim:$(worker_host_path):/usr/bin:/bin"
 }
 
 set_test_path

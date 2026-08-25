@@ -43,13 +43,13 @@ host_path() {
 }
 
 setup_path_no_workers() {
-  export PATH="$TMP/shim:$(host_path)"
+  export PATH="$TMP/shim:$(host_path):/usr/bin:/bin"
 }
 
 setup_path_with() {
   local name="$1"
   make_shim "$name"
-  export PATH="$TMP/shim:$(host_path)"
+  export PATH="$TMP/shim:$(host_path):/usr/bin:/bin"
 }
 
 # muxa/br/treehouse shims for doctor host section when real ones absent from trimmed path
