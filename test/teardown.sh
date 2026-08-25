@@ -328,7 +328,7 @@ else
   fail "already-gone worker still returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
 fi
 
-# artifact dir under HOME is removed on successful teardown
+# artifact dir under HOME is removed on successful teardown (mirrored report.md only)
 WT_ART="$TMP/wt-art"
 make_pushed_wt "$WT_ART" feat-art
 WT_ART="$(cd "$WT_ART" && pwd -P)"
@@ -338,9 +338,38 @@ printf 'findings\n' > "$CP_HOME/state/artifacts/job-art/report.md"
 printf '[]\n' > "$CP_TEST_WHO"
 if "$CP" teardown job-art >/dev/null 2>"$TMP/err.art" \
   && [[ ! -d "$CP_HOME/state/artifacts/job-art" ]]; then
-  ok "teardown removes state/artifacts/<id>"
+  ok "teardown removes state/artifacts/<id> when only report.md is present"
 else
-  fail "teardown removes state/artifacts/<id> (err=$(cat "$TMP/err.art"))"
+  fail "teardown removes state/artifacts/<id> when only report.md is present (err=$(cat "$TMP/err.art"))"
+fi
+
+# unmirrored companion files: refuse teardown, keep lease and extras
+WT_ARTX="$TMP/wt-artx"
+make_pushed_wt "$WT_ARTX" feat-artx
+WT_ARTX="$(cd "$WT_ARTX" && pwd -P)"
+"$CP" jobs add job-artx worker=art-lynx worktree="$WT_ARTX" branch=feat-artx >/dev/null
+mkdir -p "$CP_HOME/state/artifacts/job-artx"
+printf 'findings\n' > "$CP_HOME/state/artifacts/job-artx/report.md"
+printf 'extra row\n' > "$CP_HOME/state/artifacts/job-artx/summary.tsv"
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "summary.tsv" "unmirrored artifact file refuses teardown" \
+  "$CP" teardown job-artx
+expect_rc_msg 1 "keep the lease" "unmirrored artifact refusal names keep-the-lease" \
+  "$CP" teardown job-artx
+if grep -q return "$CP_TEST_TH_LOG"; then
+  fail "unmirrored artifact teardown does not return the lease"
+else
+  ok "unmirrored artifact teardown does not return the lease"
+fi
+if "$CP" jobs list --json | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert any(r["job"]=="job-artx" for r in rows)'; then
+  ok "unmirrored artifact teardown leaves the jobs row"
+else
+  fail "unmirrored artifact teardown leaves the jobs row"
+fi
+if [[ -f "$CP_HOME/state/artifacts/job-artx/summary.tsv" ]]; then
+  ok "unmirrored artifact teardown preserves companion files"
+else
+  fail "unmirrored artifact teardown preserves companion files"
 fi
 
 # help
