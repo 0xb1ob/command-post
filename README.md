@@ -61,7 +61,7 @@ worker.
 | `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
 | `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
 | `data/` | **no** | `data/projects.md`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
-| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`); research artifacts (`state/artifacts/`) |
+| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`: `#job`, `worker`, `worktree`, `branch`, optional `dispatched_at` stamped at dispatch); research artifacts (`state/artifacts/`) |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
 | `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` | **no** | Harness copies of `skills/` from `bin/install.sh` |
@@ -72,7 +72,7 @@ Do not commit `data/`, `state/`, `projects/`, `.beads/`, or harness skill copies
 
 - **GitHub Issues** — the real product backlog, when the caller points at one
 - **`br`** — current jobs in this command post, and closed issues as job history
-- **`bin/cp jobs`** — runtime-only (worker / worktree / branch, keyed by br id); gone at teardown
+- **`bin/cp jobs`** — runtime-only (worker / worktree / branch / `dispatched_at`, keyed by br id); gone at teardown
 - **`data/learnings.md`** — budgeted cross-repo memory (see `AGENTS.md`)
 
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.
