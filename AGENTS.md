@@ -219,13 +219,15 @@ brief; jobs here always have a brief, so the path is `muxa dispatch`.
 
 ### Model routing
 
+Shipped defaults (when `data/routing.tsv` is absent):
+
 | Role | Default |
 | --- | --- |
 | researcher | `agent --model cursor-grok-4.6-high-fast` (frontier) |
 | implementer | `agent --model composer-2.5-fast` |
 | gate-reviewer | `composer-2.5-fast` (inside `bin/cp gate`; `--model` / `CP_GATE_CMD`) |
 
-Per-job override allowed. The operator currently forbids the claude CLI for workers.
+Live routing is machine-local `data/routing.tsv` (gitignored; scaffolded by `bin/install.sh`). Per-job override is `bin/cp dispatch ... -- CMD...`. Operator CLI bans (`forbid` rows) live in that file, not here. `bin/cp doctor` lists host tools, installed worker CLIs, and effective routing. Dispatch probes the resolved worker argv[0] **before** lease and branch cut — missing CLI exits 2 with no orphan branch.
 
 ### First brief
 

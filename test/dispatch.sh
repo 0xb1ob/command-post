@@ -37,6 +37,7 @@ expect_rc_msg() {
 }
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-dispatch.XXXXXX")"
+ORIG_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
 
 export CP_HOME="$TMP/home"
@@ -142,7 +143,49 @@ esac
 EOF
 
 chmod +x "$TMP/shim/muxa" "$TMP/shim/treehouse"
-export PATH="$TMP/shim:$PATH"
+
+make_worker_shim() {
+  local name="$1"
+  printf '#!/bin/sh\nexit 0\n' > "$TMP/shim/$name"
+  chmod +x "$TMP/shim/$name"
+}
+
+make_worker_shim agent
+
+ensure_host_utils() {
+  mkdir -p "$TMP/host"
+  local c p
+  for c in rm mkdir mktemp git awk sed grep chmod printf python3; do
+    p="$(PATH="$ORIG_PATH" command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" && "$p" != "$TMP/host/$c" ]] && ln -sf "$p" "$TMP/host/$c"
+  done
+}
+
+worker_host_path() {
+  printf '%s' "$ORIG_PATH" | tr ':' '\n' | while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    case "$d" in
+      "$TMP/shim"|"$TMP/host") continue ;;
+    esac
+    [[ -x "$d/agent" || -x "$d/claude" || -x "$d/cursor-agent" ]] && continue
+    printf '%s:' "$d"
+  done | sed 's/:$//'
+}
+
+set_test_path() {
+  ensure_host_utils
+  local bash_dir=""
+  bash_dir="$(PATH="$ORIG_PATH" command -v bash 2>/dev/null || true)"
+  bash_dir="${bash_dir%/*}"
+  if [[ -n "$bash_dir" ]]; then
+    export PATH="$TMP/shim:$TMP/host:$bash_dir:$(worker_host_path)"
+  else
+    export PATH="$TMP/shim:$TMP/host:$(worker_host_path)"
+  fi
+}
+
+ensure_host_utils
+set_test_path
 
 printf 'do the work\n' > "$TMP/task.txt"
 
@@ -186,8 +229,107 @@ expect_rc_msg 1 "project clone not at" "missing projects/<name> is refused" \
   BR_SHOW_CMD=true MUXA_WHOAMI=test-parent \
   "$CP" dispatch --project missing --br-id job-miss --task-file "$TMP/task.txt"
 
+# missing worker CLI: no lease, no dispatch, exit 2
+reset_logs
+rm -f "$TMP/shim/agent" "$TMP/shim/claude" "$TMP/shim/cursor-agent"
+set_test_path
+expect_rc_msg 2 "worker CLI agent not on PATH" "missing agent exits 2 before lease" \
+  "$CP" dispatch --project demo --br-id job-nocli --task-file "$TMP/task.txt"
+set_test_path
+expect_rc_msg 2 "bin/cp doctor" "missing agent names bin/cp doctor" \
+  "$CP" dispatch --project demo --br-id job-nocli2 --task-file "$TMP/task.txt"
+if grep -q 'get' "$CP_TEST_TH_LOG"; then
+  fail "missing agent does not call treehouse get"
+else
+  ok "missing agent does not call treehouse get"
+fi
+if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
+  fail "missing agent does not call muxa dispatch"
+else
+  ok "missing agent does not call muxa dispatch"
+fi
+make_worker_shim agent
+set_test_path
+
+# claude only on PATH with explicit override succeeds
+reset_logs
+rm -f "$TMP/shim/agent"
+make_worker_shim claude
+set_test_path
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-cl" >/dev/null
+LEASE_CL="$(cd "$TMP/leased-cl" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_CL"
+printf 'Branch: job-cl\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-cl --task-file "$TMP/task.txt" -- \
+  claude --model x >/dev/null 2>"$TMP/err.cl" || {
+  fail "claude override dispatch (err=$(cat "$TMP/err.cl"))"
+}
+if grep -F -q -- "claude --model x" "$CP_TEST_DISPATCH_LOG"; then
+  ok "claude override is passed to muxa dispatch"
+else
+  fail "claude override args ($(cat "$CP_TEST_DISPATCH_LOG"))"
+fi
+rm -f "$TMP/shim/claude"
+make_worker_shim agent
+set_test_path
+
+# claude only, no override: still exit 2 (no silent fallback to claude)
+reset_logs
+rm -f "$TMP/shim/agent"
+make_worker_shim claude
+set_test_path
+expect_rc_msg 2 "worker CLI agent not on PATH" "claude on PATH without override still requires routed agent" \
+  "$CP" dispatch --project demo --br-id job-nofb --task-file "$TMP/task.txt"
+if grep -q 'get' "$CP_TEST_TH_LOG"; then
+  fail "no-fallback does not lease"
+else
+  ok "no silent fallback to claude (no lease)"
+fi
+make_worker_shim agent
+set_test_path
+
+# routing.tsv researcher row with --template research
+reset_logs
+mkdir -p "$CP_HOME/data" "$CP_HOME/templates"
+cat > "$CP_HOME/templates/brief-research.md" <<'EOF'
+Parent={{PARENT}} Branch={{BRANCH}} Id={{BR_ID}} Artifact={{ARTIFACT_PATH}}
+{{TASK}}
+EOF
+cat > "$CP_HOME/data/routing.tsv" <<'EOF'
+researcher	claude	--model	grok
+implementer	agent	--model	composer-2.5-fast
+gate-reviewer	agent	--model	composer-2.5-fast
+EOF
+rm -f "$TMP/shim/agent"
+make_worker_shim claude
+set_test_path
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-rtr" >/dev/null
+LEASE_RTR="$(cd "$TMP/leased-rtr" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_RTR"
+printf 'Branch: job-rtr\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-rtr --template research --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.rtr" || fail "routing researcher dispatch (err=$(cat "$TMP/err.rtr"))"
+if grep -F -q -- "claude --model grok" "$CP_TEST_DISPATCH_LOG"; then
+  ok "routing.tsv researcher row used with --template research"
+else
+  fail "routing researcher CMD ($(cat "$CP_TEST_DISPATCH_LOG"))"
+fi
+rm -f "$CP_HOME/data/routing.tsv"
+make_worker_shim agent
+set_test_path
+
+# unknown override CLI fails closed
+reset_logs
+expect_rc_msg 2 "not in share/clis.tsv" "my-agent override fails (not in registry)" \
+  "$CP" dispatch --project demo --br-id job-badcli --task-file "$TMP/task.txt" -- \
+  my-agent --model x
+
 # happy path: lease captured, branch created, jobs recorded, receipt confirmed
 reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-happy" >/dev/null
+LEASE="$(cd "$TMP/leased-happy" && pwd -P)"
+export CP_TEST_LEASE="$LEASE"
+set_test_path
 printf 'Branch: job-ok\nvisible brief\n' > "$CP_TEST_TAIL"
 out="$("$CP" dispatch --project demo --br-id job-ok --task-file "$TMP/task.txt" 2>"$TMP/err.ok")" || {
   fail "happy path dispatch (exit $? err=$(cat "$TMP/err.ok"))"
@@ -334,16 +476,16 @@ else
   fail "claude too-early JSON (out=$out err=$(cat "$TMP/err.cboot"))"
 fi
 
-# --name is passed through; custom CMD after --
+# --name is passed through; supported custom CMD after --
 reset_logs
 git -C "$CLONE" worktree add --detach -q "$TMP/leased3" >/dev/null
 LEASE3="$(cd "$TMP/leased3" && pwd -P)"
 export CP_TEST_LEASE="$LEASE3"
 printf 'Branch: job-name\n' > "$CP_TEST_TAIL"
 "$CP" dispatch --project demo --br-id job-name --name crisp-oak --task-file "$TMP/task.txt" -- \
-  my-agent --model x >/dev/null 2>"$TMP/err.name" || true
+  agent --model x >/dev/null 2>"$TMP/err.name" || true
 if grep -F -q -- "--name crisp-oak" "$CP_TEST_DISPATCH_LOG" \
-  && grep -F -q -- "my-agent --model x" "$CP_TEST_DISPATCH_LOG"; then
+  && grep -F -q -- "agent --model x" "$CP_TEST_DISPATCH_LOG"; then
   ok "--name and custom CMD are passed to muxa dispatch"
 else
   fail "--name/CMD args ($(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.name"))"

@@ -34,14 +34,16 @@ ensure_bin_dir() {
 
 require_prereqs() {
   local missing=0
-  for cmd in git curl tmux; do
+  # python3 is required by bin/cp (JSON, brief, gate, status), not by muxa
+  # (#27 / PR #30 removed it as a muxa-broker realpath dependency).
+  for cmd in git curl tmux python3; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       warn "$cmd is required but not found"
       missing=1
     fi
   done
   if [[ "$missing" -ne 0 ]]; then
-    die "install git, curl, and tmux first (muxa needs tmux; all are used below)"
+    die "install git, curl, tmux, and python3 first (muxa needs tmux; python3 is for bin/cp)"
   fi
 }
 
@@ -247,6 +249,15 @@ and promotes ones that generalize. Capture is not promotion. Never blind-append
 to data/learnings.md.
 Do not rewrite or delete lines.
 -->
+EOF
+
+  write_if_absent data/routing.tsv <<'EOF'
+# role  argv (remaining fields joined as the command vector)
+researcher	agent	--model	cursor-grok-4.6-high-fast
+implementer	agent	--model	composer-2.5-fast
+gate-reviewer	agent	--model	composer-2.5-fast
+# forbid  <argv0>
+# forbid  claude
 EOF
 
   write_if_absent data/archive.md <<'EOF'
