@@ -68,10 +68,12 @@ else
   fail "path is resolved from HOME, not \$PWD (got $got)"
 fi
 
-# add/get fail closed with no .beads (and must not create one in PWD or HOME)
+# add/get fail closed with no .beads (and must not create one in CP_HOME or a worktree cwd)
 expect_exit 1 "add fails when HOME has no .beads" "$CP" artifact add t-one "$TMP/elsewhere/x"
 expect_exit 1 "get fails when HOME has no .beads" "$CP" artifact get t-one
-if [[ ! -e "$CP_HOME/.beads" && ! -e .beads && ! -e "$TMP/elsewhere/.beads" ]]; then
+# Do not assert on repo-root .beads — install.sh legitimately init's there; the hazard
+# is cp/br auto-initing under CP_HOME or a leased worktree when none exists yet.
+if [[ ! -e "$CP_HOME/.beads" && ! -e "$TMP/elsewhere/.beads" ]]; then
   ok "missing .beads does not auto-init a tracker"
 else
   fail "missing .beads does not auto-init a tracker"

@@ -1,0 +1,33 @@
+name: Shell tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install br
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh" \
+            | bash -s -- --dest "$HOME/.local/bin" --skip-skills --quiet
+          br --version
+
+      - name: Run test/*.sh
+        run: |
+          failed=0
+          for f in test/*.sh; do
+            echo "=== $f ==="
+            if bash "$f"; then
+              echo
+            else
+              failed=1
+              echo "FAILED: $f" >&2
+            fi
+          done
+          exit "$failed"
