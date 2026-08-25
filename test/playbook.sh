@@ -59,6 +59,16 @@ has "belongs to another repo" "stale-clone recovery names belongs to another rep
 has "Parent only; finished worker only; outside the worktree" "teardown actor and place are constrained"
 has "there is nothing to trigger manually" "delivery is the broker's; nothing to trigger manually"
 
+has "bin/cp jobs reported" "playbook requires jobs reported on worker envelope"
+has "### Worker envelope" "worker envelope section exists"
+has "before relay and before teardown" "jobs reported is before relay and teardown"
+has "delivery:pr" "delivery:pr hold rule is documented"
+has "Status shows **\`held\`**" "held phase is named in playbook"
+has "### Stalled and held workers" "stalled and held workers section exists"
+has "forgotten \`jobs reported\`" "stalled requires no reported_at"
+has "Not a fault" "held is explicitly not a fault"
+has "Differs from **\`waiting\`**" "held differs from waiting and done"
+
 # Status block contract (operator-facing parent turns)
 has "## Status block" "status block section exists"
 has "operator-facing turn" "status block applies to operator-facing turns"

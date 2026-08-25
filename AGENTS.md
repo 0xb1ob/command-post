@@ -67,7 +67,7 @@ capability.
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
   is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` emits a self-contained snapshot page with the JSON embedded. Age prefers `jobs.tsv` `dispatched_at` (`time_source: dispatched_at`); legacy 4-column rows fall back to `br.updated_at`. Phase `stalled` = idle + open br + old stamped `dispatched_at` ([Stalled worker](#stalled-worker)).
+  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` embeds the JSON. Age prefers `jobs.tsv` `dispatched_at`; legacy rows fall back to `br.updated_at`. Phases `stalled` / `held` need `reported_at` — [Stalled and held workers](#stalled-and-held-workers).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
@@ -77,7 +77,7 @@ capability.
   Stuck-worker inspect is `muxa tail NAME` (one read; unknown name exits 2).
   Finished-worker pane removal is `muxa kill NAME|ID`.
 
-The pipeline required zero muxa changes (artifact store, gate, and playbook are all command-post; blob-store and roles deliberately NOT muxa's — see the two tests).
+Artifact store, gate, and playbook are command-post — see [two tests](#two-tests-that-settle-any-future-question).
 
 | Concern | Owner |
 | --- | --- |
@@ -105,7 +105,7 @@ Intake, classify, dispatch, wait, relay outcomes, teardown. Nothing else.
 - Classify (kind + delivery; pipeline vs single), match a project, clone into `projects/<name>` and register it
 - Record the job in br, then [Pre-dispatch](#pre-dispatch)
 - `bin/cp dispatch` — [First brief](#first-brief) lives in templates/; not muxa-parent's slim template, not a later `muxa send`
-- Relay outcomes; end every operator-facing turn with a [Status block](#status-block); capture memory under `data/` (see Memory)
+- Relay outcomes ([Worker envelope](#worker-envelope) — `jobs reported` first); end every operator-facing turn with a [Status block](#status-block); capture memory under `data/` (see Memory)
 
 Never: read/write/explore project source; research or fetch URLs here (confirming a
 worker PR URL is allowed); commit `data/`, `projects/`, or `.beads/`; treat br as a
@@ -139,7 +139,7 @@ intake; gate pass is quality only, never authorization.
 1. Two br issues (`kind:research`, `kind:ship`, both delivery per intake). Dep-link: `br dep add <ship-id> <research-id>`.
 2. Researcher: `bin/cp dispatch --project NAME --br-id <research-id> --template research --task-file F --` frontier CLI ([Model routing](#model-routing)). Predeclared artifact: `state/artifacts/<research-id>/report.md` (`bin/cp artifact path`).
 3. Wait for the envelope ([muxa] mail; [templates/README.md](templates/README.md)). HARD RULE: workers never mail the findings body. A body in mail is a contract violation — do not act on it; capture a candidate.
-4. On envelope: `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
+4. On envelope: `bin/cp jobs reported <research-id>`, `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
 5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate). Stdout JSON includes `cause` on every verdict (`null` on pass/revise; `policy`, `operational`, or `operational_persistent` on escalate — branch on this, not the reason prose):
    - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI.
    - **revise:** `muxa send` the researcher the reviewer's revisions. The tool enforces one revision max — a second revise becomes escalate. Researcher stays alive until pass.
@@ -261,7 +261,7 @@ A small job is not an exception. Auto-restart is still forbidden.
 ### While they run
 
 - Never poll. Wake on `[muxa]` mail — including `[muxa] from=broker`.
-- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phase `stalled` in `bin/cp status` is advisory — see [Stalled worker](#stalled-worker).
+- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phases `stalled` / `held` in `bin/cp status` are advisory — [Stalled and held workers](#stalled-and-held-workers).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control (`muxa kill NAME|ID`) — never a chat message. Do not kill a worker that is still on a job.
 - Freeze scope once validation starts. New scope is a new job. You never do the worker job.
@@ -270,17 +270,40 @@ A small job is not an exception. Auto-restart is still forbidden.
 - Fan out: dispatch every independent job immediately. Serialize only for a real dependency or shared mutable state. Same-file edits are not a reason to wait. Dispatch **commands** sequentially (or `--name`); independence is jobs running at once, not concurrent `muxa dispatch` processes.
 - The chosen delivery path owns the rigor. Do not invent extra review gates. Never merge red.
 
-### Stalled worker
+### Worker envelope
 
-Cursor can eat a paste after `receipt=confirmed`, leaving an empty composer; `bin/cp status` shows phase `stalled` when idle + open br + stamped `dispatched_at` older than `CP_STATUS_STALL_SEC` (default 600s; legacy rows without a stamp never stall). Advisory only — no auto-restart, kill, or re-send.
+On the worker's result mail (envelope — PR URL, etc.; never the findings body):
+**`bin/cp jobs reported <br-id>`** first, before relay and before teardown
+(idempotent; stamps `reported_at`).
 
-**Recovery:** confirm with `muxa tail NAME`; reassemble `templates/brief-<kind>.md` (`{{PARENT}}`, `{{BRANCH}}`, `{{BR_ID}}`, `{{ARTIFACT_PATH}}`, `{{TASK}}` from jobs.tsv + br/task); `muxa send --file brief.txt ALIAS` into the live pane. No re-lease, re-dispatch, or teardown — [why](reports/dispatch-hardening.md#stalled-worker-empty-composer).
+**`delivery:pr`:** after `jobs reported`, keep worker and lease alive until CI
+and automated review settle — findings are a [promote](#promote-vs-new-lease)
+(`muxa send`), not fresh lease plus `checkout -B`. Teardown after `br close`.
+Status shows **`held`** ([below](#stalled-and-held-workers)). **`delivery:local`:**
+teardown once relayed unless a follow-up promote is needed.
+
+### Stalled and held workers
+
+**`stalled`** (glyph `cross`): idle + open br + old `dispatched_at` + **no
+`reported_at`** — likely an empty composer or a forgotten `jobs reported`.
+Legacy rows without `dispatched_at` never stall. Advisory — no auto-restart,
+kill, or re-send. **Recovery:** confirm with `muxa tail NAME`; reassemble
+`templates/brief-<kind>.md`; `muxa send --file brief.txt ALIAS`. No re-lease,
+re-dispatch, or teardown — [why](reports/dispatch-hardening.md#stalled-worker-empty-composer).
+
+**`held`** (glyph `ring`): envelope processed and `jobs reported` stamped;
+pane idle while br stays open — normal for **`delivery:pr`** hold ([Worker envelope](#worker-envelope)).
+Not a fault. Differs from **`waiting`** (dispatched, no report yet) and
+**`done`** (br closed). Promote with `muxa send` for CI/review fixes; do not
+kill or re-dispatch.
 
 ### Teardown
 
 **Path:** `bin/cp teardown <br-id>` — clean+pushed verify, `treehouse return --force`
 from outside the worktree, `muxa kill NAME|ID`, `bin/cp jobs done`, drops
 `state/artifacts/<id>`. Does not close the br issue (PR URL on `br close`).
+For **`delivery:pr`**, teardown only after the [hold](#worker-envelope) ends
+(br closed or dropped) — not when the worker first mails.
 
 Fail-closed, and **you** are the actor. Dirty or unpushed keeps the lease; fix
 the blocker at the path they gave you. Parent only; finished worker only; outside the worktree.
@@ -308,11 +331,8 @@ Every **operator-facing turn** ends with a **STATUS BLOCK**: three markdown
 tables, fixed order, **always rendered**. An absent table is ambiguous; use a
 `| — | none | … |` row when a section is empty.
 
-**When required:** any message to the operator — after dispatch, while waiting,
-when relaying worker results, blockers, gate escalates, or session summaries.
-**When omitted:** turns that never reach the operator (pure wait on `[muxa]` mail
-with no outbound message). Once you speak to the operator, the block is mandatory
-even if everything is idle (explicit `none` rows).
+**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries).
+**When omitted:** pure `[muxa]` wait turns with no outbound message.
 
 Keep turns short: one or two sentences of prose (outcome headline, full PR URL),
 **then** the block. The block is the scannable WIP summary — it replaces buried in-progress prose; do not restate the same facts above it. Never paste worker dumps into the block; plain-language rows only.
@@ -414,64 +434,38 @@ on the br issue (comments). Do not keep a parallel job journal.
 
 ### Job history (closed issues)
 
-Closed br issues are the memory of past jobs. `br list` / `br search` exclude them
-unless `-s closed` and/or `-a` / `--all`: `br list -s closed --json` (optional
-`-l project:<name>`, `--sort updated_at -r --limit 20`), `br search "<query>" -a --json`,
-`br show <id> --json`, `br comments list <id>`, `br changelog --since 2026-08-01 --json`,
-`br count --by status --include-closed --json`, `br count --by label --include-closed --json`.
+Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json` (optional `-l project:<name>`).
 
 ## Memory
 
-Ops: follow **cp-memory** at `skills/cp-memory/SKILL.md`.
-Triggers: worker result or failure (capture); gate verdicts whose reasons
-generalize (especially escalate/revise); pipeline failures (lost envelope,
-hung researcher, contract violations); session end; whenever
-`data/learnings.md` is touched; every ~10 jobs; or when asked to
-curate, consolidate, or archive memory.
+Ops: follow **cp-memory** at `skills/cp-memory/SKILL.md`. Triggers: worker
+result/failure, gate verdicts that generalize, pipeline failures, session end,
+`data/learnings.md` touched, every ~10 jobs, or when asked to curate.
 
-Local file-based long-term memory under `data/`. No cloud services, no daemons.
+Local file-based memory under `data/`. No cloud, no daemons.
 
-- `data/learnings.md` — curated core, always loaded, budgeted (~60 lines / ~1,500 tokens). Inspect-then-update only.
-- `data/candidates.md` — append-only capture of reflection candidates (evidence pending curation).
-- `data/archive.md` — cold tier; never loaded. Stale entries with provenance.
+- `data/learnings.md` — curated core (~60 lines). Inspect-then-update only.
+- `data/candidates.md` — append-only capture pending curation.
+- `data/archive.md` — cold tier; never loaded.
 
-Routing: knowledge intrinsic to one project goes to that repo's `AGENTS.md` via
-a worker PR. `data/learnings.md` holds only cross-repo / orchestration
-knowledge.
+Routing: project-intrinsic knowledge → that repo's `AGENTS.md` via worker PR.
+`data/learnings.md` holds cross-repo orchestration only. Job history lives in br.
 
-Job lifecycle history lives in br (closed issues + comments), not in learnings.
-
-File contracts (header + format) are created by `bin/install.sh` when the
-files are absent. Do not invent a second schema.
+File contracts: `bin/install.sh` when absent. Do not invent a second schema.
 
 ### Capture (two-stage)
 
-1. **On worker result / failure:** if a lesson was observed, append one dated
-   line to `data/candidates.md`. Most jobs yield nothing. Failures and blockers
-   should capture a candidate when a generalization is worth promoting.
-2. **Curation (inspect-then-update):** candidates stay in `data/candidates.md`
-   until a curation pass (end of session, or whenever `data/learnings.md` is
-   touched) promotes ones that generalize into `data/learnings.md`. Never
-   blind-append to `data/learnings.md`.
+1. **On worker result / failure:** append a dated line to `data/candidates.md` when a lesson generalizes; most jobs yield nothing.
+2. **Curation:** promote recurring candidates into `data/learnings.md` at session end or when learnings is touched. Never blind-append to learnings.
 
 ### Retrieval
 
-- **Session start:** read `data/learnings.md` in full (it is budgeted, so this is cheap).
-- **Pre-dispatch:** before dispatching into repo X, run `rg -i "<repo-name>" data/`
-  and paste at most 2–3 relevant hits into the worker's brief.
+- **Session start:** read `data/learnings.md` in full.
+- **Pre-dispatch:** `rg -i "<repo-name>" data/` — paste at most 2–3 hits into the brief.
 
 ### Decay and archival
 
-Lazy evaluation only — clocks tick at curation, not in the background. At
-session end or every ~10 jobs:
-
-- Perishable (`<!--p:DATE-->`) ≥7d → check the named expiry condition, refresh or archive.
-- Aging (`<!--a:DATE-->`) ≥30d without reinforcement this period → archive with reason.
-- Pinned (`<!--P-->`) never decays.
-- Reinforce only entries actually used this session (re-reading is never reinforcement).
-- Over 60 lines → consolidate or demote until under.
-- Promote candidates that have recurred or clearly generalize.
-- Stale entries move to `data/archive.md` with source, tier, date, and a one-line reason. Never delete.
+At session end or every ~10 jobs: perishable (≥7d) check/refresh/archive; aging (≥30d) archive; pinned never decays; reinforce only entries used this session; over 60 lines consolidate; stale → `data/archive.md` with provenance. Never delete.
 
 ## State files
 

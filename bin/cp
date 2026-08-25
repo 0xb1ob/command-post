@@ -82,8 +82,10 @@
 # Timestamp prefers jobs.tsv dispatched_at (time_source:"dispatched_at");
 # legacy 4-column rows fall back to br.updated_at (time_source:
 # "br_updated_at"). Phase stalled: pane idle + br open/in_progress +
-# dispatched_at older than CP_STATUS_STALL_SEC (default 600s — see
-# DEFAULT_STATUS_STALL_SEC); legacy rows without dispatched_at never stall.
+# stamped dispatched_at older than CP_STATUS_STALL_SEC (default 600s — see
+# DEFAULT_STATUS_STALL_SEC) and no reported_at; legacy rows without
+# dispatched_at never stall. Phase held: idle + open br + reported_at
+# (worker finished and deliberately kept for PR/CI follow-up).
 # Read-only: mutates nothing, never calls tmux.
 #
 # Command-post home is this script's repo root (from the script location,
@@ -100,15 +102,16 @@ CP_HOME="${CP_HOME:-$ROOT}"
 
 DEFAULT_GATE_MODEL="composer-2.5-fast"
 # Stall detection (bin/cp status): idle + open br + stamped dispatched_at
-# older than this many seconds. 600s (10m) default — the vivid-fox incident
-# sat 24m with an empty composer after the CLI ate the paste post-receipt;
-# healthy workers mail within minutes and get torn down, so ten minutes of
-# idle-with-open-br after a stamped dispatch is strong evidence of a drop.
+# older than this many seconds and no reported_at. 600s (10m) default —
+# the vivid-fox incident sat 24m with an empty composer after the CLI ate
+# the paste post-receipt; healthy workers mail within minutes; finished
+# workers get reported_at when the parent processes the envelope and
+# render as held, not stalled.
 DEFAULT_STATUS_STALL_SEC=600
 
 usage() {
   printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
-  printf '       %s jobs add|set|done|list ...\n' "$PROG" >&2
+  printf '       %s jobs add|set|reported|done|list ...\n' "$PROG" >&2
   printf '       %s artifact path|add|get ...\n' "$PROG" >&2
   printf '       %s gate ID [--model M]\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
@@ -149,6 +152,7 @@ usage_teardown() {
 usage_jobs() {
   printf 'usage: %s jobs add ID worker=ALIAS worktree=PATH [branch=NAME]\n' "$PROG" >&2
   printf '       %s jobs set ID [worker=ALIAS] [worktree=PATH] [branch=NAME]\n' "$PROG" >&2
+  printf '       %s jobs reported ID\n' "$PROG" >&2
   printf '       %s jobs done ID\n' "$PROG" >&2
   printf '       %s jobs list [--json]\n' "$PROG" >&2
 }
@@ -538,12 +542,24 @@ jobs_ensure() {
   f="$(jobs_file)"
   mkdir -p "$(dirname "$f")"
   if [[ ! -f "$f" ]]; then
-    printf '#job\tworker\tworktree\tbranch\tdispatched_at\n' > "$f"
+    printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$f"
   fi
 }
 
 jobs_dispatched_at_now() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+jobs_emit_row() {
+  local job="$1" worker="$2" worktree="$3" branch="$4"
+  local dispatched_at="${5:-}" reported_at="${6:-}"
+  if [[ -n "$reported_at" ]]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at"
+  elif [[ -n "$dispatched_at" ]]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at"
+  else
+    printf '%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch"
+  fi
 }
 
 validate_job_id() {
@@ -681,24 +697,20 @@ jobs_lookup() {
 }
 
 jobs_rewrite() {
-  local f tmp line job worker worktree branch dispatched_at
+  local f tmp line job worker worktree branch dispatched_at reported_at
   local target="$1" action="$2"
   local new_worker="$3" new_worktree="$4" new_branch="$5"
   local found=0
   f="$(jobs_file)"
   tmp="$(mktemp "${f}.XXXXXX")"
-  printf '#job\tworker\tworktree\tbranch\tdispatched_at\n' > "$tmp"
+  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$tmp"
   if [[ -f "$f" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue
       [[ "$line" == \#* ]] && continue
-      IFS=$'\t' read -r job worker worktree branch dispatched_at <<< "$line"
+      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at <<< "$line"
       if [[ "$job" != "$target" ]]; then
-        if [[ -n "$dispatched_at" ]]; then
-          printf '%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" >> "$tmp"
-        else
-          printf '%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" >> "$tmp"
-        fi
+        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
         continue
       fi
       found=1
@@ -708,11 +720,7 @@ jobs_rewrite() {
       [[ -n "$new_worker" ]] && worker="$new_worker"
       [[ -n "$new_worktree" ]] && worktree="$new_worktree"
       [[ -n "$new_branch" ]] && branch="$new_branch"
-      if [[ -n "$dispatched_at" ]]; then
-        printf '%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" >> "$tmp"
-      else
-        printf '%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" >> "$tmp"
-      fi
+      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
     done < "$f"
   fi
   if [[ "$found" -eq 0 ]]; then
@@ -720,6 +728,37 @@ jobs_rewrite() {
     return 1
   fi
   mv "$tmp" "$f"
+}
+
+jobs_stamp_reported() {
+  local target="$1" f tmp line job worker worktree branch dispatched_at reported_at
+  local found=0 stamp
+  stamp="$(jobs_dispatched_at_now)"
+  f="$(jobs_file)"
+  tmp="$(mktemp "${f}.XXXXXX")"
+  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$tmp"
+  if [[ -f "$f" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] || continue
+      [[ "$line" == \#* ]] && continue
+      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at <<< "$line"
+      if [[ "$job" != "$target" ]]; then
+        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+        continue
+      fi
+      found=1
+      if [[ -z "$reported_at" ]]; then
+        reported_at="$stamp"
+      fi
+      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+    done < "$f"
+  fi
+  if [[ "$found" -eq 0 ]]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv "$tmp" "$f"
+  log "jobs reported $target reported_at=$reported_at"
 }
 
 resolve_worktree() {
@@ -790,6 +829,28 @@ jobs_set() {
   log "jobs set $job worker=$worker branch=$branch worktree=$worktree"
 }
 
+jobs_reported() {
+  local id arg
+  [[ $# -ge 1 ]] || die_jobs_usage "reported needs ID"
+  id="$1"
+  shift
+  validate_job_id "$id"
+  for arg in "$@"; do
+    case "$arg" in
+      pr=*|kind=*|delivery=*|status=*|note=*)
+        die "refusing ${arg%%=*}= — reported only stamps runtime state on the jobs row"
+        ;;
+      *)
+        die_jobs_usage "reported takes ID only, got $arg"
+        ;;
+    esac
+  done
+  jobs_ensure
+  if ! jobs_stamp_reported "$id"; then
+    die "no runtime row for $id"
+  fi
+}
+
 jobs_done() {
   local id arg
   [[ $# -ge 1 ]] || die_jobs_usage "done needs ID"
@@ -843,6 +904,8 @@ for line in sys.stdin:
     row = {"job": job, "worker": worker, "worktree": worktree, "branch": branch}
     if len(parts) > 4 and parts[4]:
         row["dispatched_at"] = parts[4]
+    if len(parts) > 5 and parts[5]:
+        row["reported_at"] = parts[5]
     rows.append(row)
 json.dump(rows, sys.stdout)
 print()
@@ -1398,7 +1461,7 @@ cmd_gate() {
 }
 
 cmd_jobs() {
-  [[ $# -gt 0 ]] || die_jobs_usage "missing add|set|done|list"
+  [[ $# -gt 0 ]] || die_jobs_usage "missing add|set|reported|done|list"
   case "$1" in
     add)
       shift
@@ -1407,6 +1470,10 @@ cmd_jobs() {
     set)
       shift
       jobs_set "$@"
+      ;;
+    reported)
+      shift
+      jobs_reported "$@"
       ;;
     done)
       shift
@@ -1421,7 +1488,7 @@ cmd_jobs() {
       exit 2
       ;;
     *)
-      die_jobs_usage "unknown jobs command $1 (want: add, set, done, list)"
+      die_jobs_usage "unknown jobs command $1 (want: add, set, reported, done, list)"
       ;;
   esac
 }
@@ -1675,6 +1742,7 @@ def basename(cwd):
 PHASE_GLYPH = {
     "working": "dot",
     "waiting": "hollow",
+    "held": "ring",
     "stalled": "cross",
     "done": "check",
     "ghost": "warn",
@@ -1692,12 +1760,21 @@ def parse_ts(s):
             continue
     return None
 
+def is_held(pane_state, br_status, job):
+    if pane_state != "idle":
+        return False
+    if br_status not in ("open", "in_progress"):
+        return False
+    return bool(job and job.get("reported_at"))
+
 def is_stalled(pane_state, br_status, job):
     if pane_state != "idle":
         return False
     if br_status not in ("open", "in_progress"):
         return False
     if not job or not job.get("dispatched_at"):
+        return False
+    if job.get("reported_at"):
         return False
     dispatched = parse_ts(job["dispatched_at"])
     now = parse_ts(generated_at)
@@ -1782,7 +1859,9 @@ for p in who:
     timestamp, time_source = resolve_timestamp(job, issue)
 
     phase = derive_phase(role, pane_state, br_status)
-    if phase == "waiting" and is_stalled(pane_state, br_status, job):
+    if phase == "waiting" and is_held(pane_state, br_status, job):
+        phase = "held"
+    elif phase == "waiting" and is_stalled(pane_state, br_status, job):
         phase = "stalled"
 
     if bid:
@@ -1992,6 +2071,7 @@ doc = """<!DOCTYPE html>
   --phase-working: #16a34a;
   --phase-waiting: #ca8a04;
   --phase-stalled: #dc2626;
+  --phase-held: #0891b2;
   --phase-done: #059669;
   --phase-warn: #d97706;
   --phase-untracked: #71717a;
@@ -2008,6 +2088,7 @@ doc = """<!DOCTYPE html>
     --phase-working: #4ade80;
     --phase-waiting: #facc15;
     --phase-stalled: #f87171;
+    --phase-held: #22d3ee;
     --phase-done: #34d399;
     --phase-warn: #fb923c;
     --phase-untracked: #a1a1aa;
@@ -2067,6 +2148,7 @@ tr:last-child td { border-bottom: none; }
 .phase-working .glyph { color: var(--phase-working); }
 .phase-waiting .glyph { color: var(--phase-waiting); }
 .phase-stalled .glyph { color: var(--phase-stalled); }
+.phase-held .glyph { color: var(--phase-held); }
 .phase-done .glyph { color: var(--phase-done); }
 .phase-ghost .glyph, .phase-orphaned .glyph { color: var(--phase-warn); }
 .phase-untracked .glyph { color: var(--phase-untracked); }
@@ -2088,7 +2170,7 @@ tr:last-child td { border-bottom: none; }
 <script type="application/json" id="fleet-data">__FLEET_JSON__</script>
 <script>
 (function () {
-  var GLYPH = { dot: "\\u25cf", hollow: "\\u25d0", cross: "\\u2717", check: "\\u2713", warn: "\\u26a0", dash: "\\u25cb" };
+  var GLYPH = { dot: "\\u25cf", hollow: "\\u25d0", ring: "\\u25c9", cross: "\\u2717", check: "\\u2713", warn: "\\u26a0", dash: "\\u25cb" };
   var TIME_SOURCE_LABEL = {
     dispatched_at: "jobs.tsv dispatched_at (exact job start, stamped at bin/cp dispatch)",
     br_updated_at: "br.updated_at (approximate dispatch proxy for legacy rows, not exact job start)"
