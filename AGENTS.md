@@ -264,6 +264,7 @@ Ordinary `[muxa]` from the broker — wake on it. Correlate with dispatch JSON
 - A queued message reaches an idle hook pane on its next turn; the broker pastes when the pane looks free — there is nothing to trigger manually. Do not scrape `muxa who`'s human table for UNREAD; use `muxa who --json`.
 - Receipt is [First brief](#first-brief), not dispatch JSON.
 - Fan out: dispatch every independent job immediately. Serialize only for a real dependency or shared mutable state. Same-file edits are not a reason to wait. Dispatch **commands** sequentially (or `--name`); independence is jobs running at once, not concurrent `muxa dispatch` processes.
+- **Parallel PRs, one base:** two PRs from the same base can each be green and still break `main` on the second merge — rebase onto the merged tip and re-run the **full** suite before merge, or serialize the second job behind the first merge. [Why](reports/operating-knowledge.md#parallel-prs-from-one-base).
 - The chosen delivery path owns the rigor. Do not invent extra review gates. Never merge red.
 
 ### Worker envelope
@@ -306,6 +307,10 @@ the blocker at the path they gave you. Parent only; finished worker only; outsid
 Not a licence to inspect, poll, or kill a worker still on a job.
 Interactive `treehouse return` prompts — use `--force` after the worker's
 clean-and-pushed gate ([why](reports/dispatch-hardening.md#teardown)).
+**Merged PR, auto-deleted head:** absence from `origin` reads like never-pushed;
+do not trust three-dot `git diff origin/main...branch` after squash. Verify MERGED,
+empty `git ls-remote --heads origin <branch>`, and empty two-dot
+`git diff <branch> origin/main` — then fallback teardown ([recovery](reports/operating-knowledge.md#teardown-merged-auto-deleted-head-branch)).
 
 `bin/cp` unavailable:
 
@@ -430,37 +435,43 @@ on the br issue (comments). Do not keep a parallel job journal.
 ### Job history (closed issues)
 
 Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json` (optional `-l project:<name>`).
+**Verify, don't browse:** `br list` caps at 50 unless `--limit 0` — pass it when the result decides membership or existence ([why](reports/operating-knowledge.md#br-list-verification-cap)).
 
 ## Memory
 
 Ops: follow **cp-memory** at `skills/cp-memory/SKILL.md`. Triggers: worker
-result/failure, gate verdicts that generalize, pipeline failures, session end,
-`data/learnings.md` touched, every ~10 jobs, or when asked to curate.
+result/failure, session end, every ~10 jobs, or when asked to curate.
+
+**Fresh-home test:** would a clean clone need this? → **AGENTS.md** or
+[reports/](reports/) (linked from the contract), not gitignored memory. General
+orchestration rules live in tracked files; defects are tracked issues (#74–#77)
+until fixed in code. Memory holds only machine-local environment facts and
+interim workarounds awaiting a contract or tooling change.
 
 Local file-based memory under `data/`. No cloud, no daemons.
 
-- `data/learnings.md` — curated core (~60 lines). Inspect-then-update only.
+- `data/learnings.md` — residue only (~60 lines). Inspect-then-update.
 - `data/candidates.md` — append-only capture pending curation.
 - `data/archive.md` — cold tier; never loaded.
 
-Routing: project-intrinsic knowledge → that repo's `AGENTS.md` via worker PR.
-`data/learnings.md` holds cross-repo orchestration only. Job history lives in br.
-
-File contracts: `bin/install.sh` when absent. Do not invent a second schema.
+Routing: project-intrinsic → that repo's `AGENTS.md` via worker PR. Job history → br.
+Rationale docs: [dispatch-hardening.md](reports/dispatch-hardening.md),
+[operating-knowledge.md](reports/operating-knowledge.md).
 
 ### Capture (two-stage)
 
-1. **On worker result / failure:** append a dated line to `data/candidates.md` when a lesson generalizes; most jobs yield nothing.
-2. **Curation:** promote recurring candidates into `data/learnings.md` at session end or when learnings is touched. Never blind-append to learnings.
+1. **On worker result / failure:** append to `data/candidates.md` only when the lesson is machine-local or not yet ready for a contract edit; most jobs yield nothing.
+2. **Curation:** generalizable lessons → AGENTS.md/reports PR; candidates that repeat → promote per cp-memory. Never blind-append to learnings.
 
 ### Retrieval
 
-- **Session start:** read `data/learnings.md` in full.
-- **Pre-dispatch:** `rg -i "<repo-name>" data/` — paste at most 2–3 hits into the brief.
+- **Session start:** read `data/learnings.md` in full (should be small).
+- **Pre-dispatch:** contract first; `rg -i "<repo-name>" data/` at most 2–3 hits if needed.
 
 ### Decay and archival
 
-At session end or every ~10 jobs: perishable (≥7d) check/refresh/archive; aging (≥30d) archive; pinned never decays; reinforce only entries used this session; over 60 lines consolidate; stale → `data/archive.md` with provenance. Never delete.
+Perishable (≥7d), aging (≥30d), pinned never decays. Absorbed rules → `data/archive.md`
+with provenance (file + section). Never delete.
 
 ## State files
 

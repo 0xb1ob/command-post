@@ -124,6 +124,24 @@ has "data/routing.tsv" "playbook points at data/routing.tsv for routing"
 has "bin/cp doctor" "playbook mentions bin/cp doctor"
 has "missing CLI exits 2" "playbook documents pre-lease CLI probe"
 
+# Parallel PRs and merge discipline (command-post#78)
+has "Parallel PRs, one base" "parallel PRs from one base section exists"
+has "rebase onto the merged tip" "second PR must rebase onto merged tip"
+has "re-run the **full** suite" "full suite re-run before merge is required"
+
+# Teardown: merged PR with auto-deleted head (command-post#78)
+has "auto-deleted head" "merged auto-deleted head teardown recovery exists"
+has "git diff <branch> origin/main" "two-dot diff for merged branch verification"
+
+# br list verification cap (command-post#74 / #78)
+has "--limit 0" "br list limit 0 for verification is documented"
+has "caps at 50" "br list 50-row cap is named"
+
+# Memory scope (command-post#78)
+has "Fresh-home test" "fresh-home test routes knowledge to contract"
+has "operating-knowledge.md" "operating knowledge report is linked from contract"
+has "residue only" "learnings is residue-only in memory section"
+
 lines="$(wc -l < "$AGENTS" | tr -d ' ')"
 if [[ "$lines" -le 480 ]]; then
   ok "AGENTS.md is ≤480 lines (target ~400; got $lines)"
