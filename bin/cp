@@ -2428,21 +2428,21 @@ cli_is_supported() {
 # Append supported argv0 names (sorted) to array variable named by $1.
 list_supported_clis() {
   local out_arr="$1" path line a
-  local -a names=()
+  local -a cli_list=()
   path="$(clis_tsv_path)"
   [[ -f "$path" ]] || { eval "${out_arr}=()"; return 0; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     IFS=$'\t' read -r a _ _ <<< "$line"
-    [[ -n "$a" ]] && names+=("$a")
+    [[ -n "$a" ]] && cli_list+=("$a")
   done < "$path"
-  if [[ ${#names[@]} -gt 0 ]]; then
-    IFS=$'\n' names=($(printf '%s\n' "${names[@]}" | sort))
+  if [[ ${#cli_list[@]} -gt 0 ]]; then
+    IFS=$'\n' cli_list=($(printf '%s\n' "${cli_list[@]}" | sort))
     unset IFS
   fi
   eval "${out_arr}=()"
   local n
-  for n in "${names[@]}"; do
+  for n in "${cli_list[@]}"; do
     eval "${out_arr}+=(\"\$n\")"
   done
 }
@@ -2487,11 +2487,85 @@ cli_is_forbidden() {
   return 1
 }
 
-# Resolve role argv into array variable $2; source (shipped|routing) into $3.
+# Derivation preference when several worker CLIs are installed (documented order).
+CLI_DERIVE_PREFERENCE=(agent cursor-agent claude)
+
+cli_default_model() {
+  local argv0="$1" line a model
+  local path
+  path="$(clis_tsv_path)"
+  [[ -f "$path" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    IFS=$'\t' read -r a _ _ model <<< "$line"
+    if [[ "$a" == "$argv0" ]]; then
+      printf '%s' "${model:-}"
+      return 0
+    fi
+  done < "$path"
+  return 1
+}
+
+# Append installed supported CLIs (not forbidden) to array named by $1.
+list_derived_candidates() {
+  local out_arr="$1" name p
+  local -a supported=()
+  load_forbid_clis "$(routing_tsv_path)"
+  list_supported_clis supported
+  eval "${out_arr}=()"
+  for name in "${supported[@]}"; do
+    cli_is_forbidden "$name" && continue
+    p="$(cmd_v_path "$name")"
+    [[ -n "$p" ]] || continue
+    eval "${out_arr}+=(\"\$name\")"
+  done
+}
+
+# Build argv for a CLI using its default_model from share/clis.tsv into array $2.
+compose_cli_argv() {
+  local cli="$1" out_arr="$2" model
+  model="$(cli_default_model "$cli" 2>/dev/null || true)"
+  eval "${out_arr}=()"
+  eval "${out_arr}+=(\"\$cli\")"
+  if [[ -n "$model" ]]; then
+    eval "${out_arr}+=(--model \"\$model\")"
+  fi
+}
+
+# Pick one CLI from installed candidates using CLI_DERIVE_PREFERENCE.
+pick_derived_cli() {
+  local out_var="$1"
+  local -a candidates=() pref=() picked=()
+  list_derived_candidates candidates
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    eval "${out_var}="
+    return 1
+  fi
+  if [[ ${#candidates[@]} -eq 1 ]]; then
+    eval "${out_var}=\${candidates[0]}"
+    return 0
+  fi
+  local c p
+  for p in "${CLI_DERIVE_PREFERENCE[@]}"; do
+    for c in "${candidates[@]}"; do
+      [[ "$c" == "$p" ]] && picked+=("$c")
+    done
+  done
+  for c in "${candidates[@]}"; do
+    local seen=0 x
+    for x in "${picked[@]}"; do
+      [[ "$x" == "$c" ]] && seen=1
+    done
+    [[ "$seen" -eq 0 ]] && picked+=("$c")
+  done
+  eval "${out_var}=\${picked[0]}"
+}
+
+# Resolve role argv into array variable $2; source into $3; optional reason into $4.
 resolve_role_argv() {
-  local role="$1" out_arr="$2" out_src="$3"
-  local path line found=0 src_val="shipped"
-  local -a argv=() shipped=() fields=()
+  local role="$1" out_arr="$2" out_src="$3" out_reason="${4:-}"
+  local path line found=0 src_val="shipped" reason=""
+  local -a argv=() shipped=() fields=() candidates=() derived_cli=()
 
   case "$role" in
     researcher) shipped=("${SHIPPED_RESEARCHER[@]}") ;;
@@ -2499,6 +2573,8 @@ resolve_role_argv() {
     gate-reviewer) shipped=("${SHIPPED_GATE_REVIEWER[@]}") ;;
     *) die "unknown role $role" ;;
   esac
+
+  load_forbid_clis "$(routing_tsv_path)"
 
   path="$(routing_tsv_path)"
   if [[ -f "$path" ]]; then
@@ -2519,24 +2595,46 @@ resolve_role_argv() {
 
   if [[ "$found" -eq 1 ]]; then
     src_val="routing"
-  else
+    reason="data/routing.tsv row for role $role"
+  elif [[ -n "$(cmd_v_path "${shipped[0]}")" ]] && ! cli_is_forbidden "${shipped[0]}"; then
     argv=("${shipped[@]}")
+    src_val="shipped"
+    reason="shipped default CLI ${shipped[0]} is installed"
+  else
+    list_derived_candidates candidates
+    if [[ ${#candidates[@]} -eq 1 ]]; then
+      compose_cli_argv "${candidates[0]}" argv
+      src_val="derived"
+      reason="only installed worker CLI: ${candidates[0]}"
+    elif [[ ${#candidates[@]} -gt 1 ]]; then
+      pick_derived_cli derived_cli
+      compose_cli_argv "$derived_cli" argv
+      src_val="derived"
+      reason="preference order among installed CLIs (picked ${derived_cli})"
+    else
+      argv=("${shipped[@]}")
+      src_val="derived"
+      reason="no worker CLI installed"
+    fi
   fi
+
   eval "${out_arr}=()"
   local a
   for a in "${argv[@]}"; do
     eval "${out_arr}+=(\"\$a\")"
   done
   eval "${out_src}=\$src_val"
+  if [[ -n "$out_reason" ]]; then
+    eval "${out_reason}=\$reason"
+  fi
 }
 
-dispatch_role_from_template() {
-  local template="$1"
-  if [[ "$template" == research ]]; then
-    printf 'researcher\n'
-  else
-    printf 'implementer\n'
-  fi
+announce_routing_resolution() {
+  local role="$1" source="$2" reason="$3"
+  shift 3
+  local -a argv=("$@")
+  printf '[cp] routing: role=%s argv=%q source=%s (%s)\n' \
+    "$role" "${argv[*]}" "$source" "$reason" >&2
 }
 
 validate_worker_argv0() {
@@ -2558,17 +2656,43 @@ validate_worker_argv0() {
   fi
 }
 
+installable_clis_message() {
+  local -a installable=()
+  list_supported_clis installable
+  if [[ ${#installable[@]} -eq 0 ]]; then
+    printf 'Install a supported worker CLI listed in share/clis.tsv.\n'
+    return 0
+  fi
+  printf 'Install one of: %s (see share/clis.tsv).\n' "${installable[*]}"
+}
+
 require_worker_cmd() {
   local argv0="$1" role="$2" source="$3" p
+  local -a candidates=()
   validate_worker_argv0 "$argv0" "$role" "$source"
   p="$(cmd_v_path "$argv0")"
-  if [[ -z "$p" ]]; then
-    printf '[cp] error: worker CLI %q not on PATH (role=%s, source=%s)\n' \
-      "$argv0" "$role" "$source" >&2
+  if [[ -n "$p" ]]; then
+    return 0
+  fi
+  list_derived_candidates candidates
+  printf '[cp] error: worker CLI %q not on PATH (role=%s, source=%s)\n' \
+    "$argv0" "$role" "$source" >&2
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    installable_clis_message >&2
+  else
     printf "Install %q, or set that role in data/routing.tsv to an installed CLI from share/clis.tsv.\n" \
       "$argv0" >&2
-    printf 'bin/cp doctor lists installed CLIs. Will not substitute another CLI (receipt is kind-specific).\n' >&2
-    exit 2
+  fi
+  printf 'bin/cp doctor lists installed CLIs.\n' >&2
+  exit 2
+}
+
+dispatch_role_from_template() {
+  local template="$1"
+  if [[ "$template" == research ]]; then
+    printf 'researcher\n'
+  else
+    printf 'implementer\n'
   fi
 }
 
@@ -2928,14 +3052,16 @@ cmd_dispatch() {
     die "--task-file $task_file is not a file — pass a readable path"
   fi
 
-  local role source override=0
+  local role source override=0 route_reason=""
   if [[ ${#agent_cmd[@]} -eq 0 ]]; then
     role="$(dispatch_role_from_template "$template")"
-    resolve_role_argv "$role" agent_cmd source
+    resolve_role_argv "$role" agent_cmd source route_reason
+    announce_routing_resolution "$role" "$source" "$route_reason" "${agent_cmd[@]}"
   else
     override=1
     role="$(dispatch_role_from_template "$template")"
     source="override"
+    announce_routing_resolution "$role" "$source" "explicit -- CMD override" "${agent_cmd[@]}"
   fi
 
   local clone wt branch parent artifact brief_src brief_out parsed
@@ -3066,6 +3192,36 @@ cmd_dispatch() {
   emit_dispatch_json "$br_id" "$worker" "$wt" "$branch" "$json_state" "$receipt"
 }
 
+doctor_roles_json() {
+  local role source
+  local -a role_argv=()
+  require_python3
+  {
+    for role in researcher implementer gate-reviewer; do
+      resolve_role_argv "$role" role_argv source
+      printf '%s\t%s' "$role" "$source"
+      local a
+      for a in "${role_argv[@]}"; do
+        printf '\t%s' "$a"
+      done
+      printf '\n'
+    done
+  } | python3 -c '
+import json, sys
+roles = {}
+for line in sys.stdin:
+    parts = line.rstrip("\n").split("\t")
+    role, source = parts[0], parts[1]
+    argv = parts[2:]
+    roles[role] = {
+        "argv": argv,
+        "argv0": argv[0] if argv else "",
+        "source": source,
+    }
+print(json.dumps(roles))
+'
+}
+
 cmd_doctor() {
   local json=0
   while [[ $# -gt 0 ]]; do
@@ -3105,12 +3261,15 @@ cmd_doctor() {
   if [[ "$json" -eq 1 ]]; then
     require_python3
     export CP_DOCTOR_ROOT="$ROOT" CP_DOCTOR_HOME="$CP_HOME"
+    export CP_DOCTOR_ROLES_JSON
+    CP_DOCTOR_ROLES_JSON="$(doctor_roles_json)"
     python3 - "$ROOT" "$CP_HOME" "$host_missing" <<'PY'
 import json, os, subprocess, sys
 
 root, home, host_missing = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 clis_path = os.path.join(root, "share", "clis.tsv")
 routing_path = os.path.join(home, "data", "routing.tsv")
+roles_base = json.loads(os.environ.get("CP_DOCTOR_ROLES_JSON", "{}"))
 
 def path_of(cmd):
     try:
@@ -3145,15 +3304,7 @@ if os.path.isfile(clis_path):
                     "path": p or "",
                 }
 
-shipped = {
-    "researcher": ["agent", "--model", "cursor-grok-4.6-high-fast"],
-    "implementer": ["agent", "--model", "composer-2.5-fast"],
-    "gate-reviewer": ["agent", "--model", "composer-2.5-fast"],
-}
-roles_cfg = {r: {"argv": list(v), "source": "shipped"} for r, v in shipped.items()}
 forbid = []
-last_role = {}
-
 if os.path.isfile(routing_path):
     with open(routing_path) as f:
         for line in f:
@@ -3161,24 +3312,18 @@ if os.path.isfile(routing_path):
             if not line or line.startswith("#"):
                 continue
             parts = line.split("\t")
-            rec = parts[0]
-            if rec == "forbid" and len(parts) >= 2:
+            if parts[0] == "forbid" and len(parts) >= 2:
                 forbid.append(parts[1])
-            elif rec in shipped and len(parts) >= 2:
-                last_role[rec] = parts[1:]
-
-for role, argv in last_role.items():
-    roles_cfg[role] = {"argv": argv, "source": "routing"}
 
 roles = {}
-for role, cfg in roles_cfg.items():
-    argv = cfg["argv"]
-    argv0 = argv[0] if argv else ""
+for role, cfg in roles_base.items():
+    argv = cfg.get("argv") or []
+    argv0 = cfg.get("argv0") or (argv[0] if argv else "")
     p = path_of(argv0) if argv0 else None
     roles[role] = {
         "argv": argv,
         "argv0": argv0,
-        "source": cfg["source"],
+        "source": cfg.get("source", "shipped"),
         "installed": p is not None,
         "path": p or "",
         "forbidden": argv0 in forbid,
@@ -3193,12 +3338,17 @@ for role, rinfo in roles.items():
     argv0 = rinfo["argv0"]
     if argv0 and not rinfo["installed"] and argv0 not in seen:
         seen.add(argv0)
+        fix = f"install {argv0} or edit data/routing.tsv for role {role}"
+        if rinfo["source"] == "derived":
+            names = sorted(clis.keys()) if clis else []
+            if names:
+                fix = f"install one of: {', '.join(names)} (see share/clis.tsv)"
         missing.append({
             "what": argv0,
             "kind": "routed-but-missing",
             "role": role,
             "source": rinfo["source"],
-            "fix": f"install {argv0} or edit data/routing.tsv for role {role}",
+            "fix": fix,
         })
 
 out = {
