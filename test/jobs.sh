@@ -103,15 +103,20 @@ cat > "$CP_JOBS_FILE" <<EOF
 #job	worker	worktree	branch
 legacy-two	old-worker	$WT	legacy-two
 stamped-one	new-worker	$WT	stamped-branch	2026-08-24T12:00:00Z
+held-one	held-worker	$WT	held-branch	2026-08-24T10:00:00Z	2026-08-24T11:00:00Z
 EOF
 mixed_json="$("$CP" jobs list --json)"
 if printf '%s\n' "$mixed_json" | python3 -c '
 import json, sys
 rows = {r["job"]: r for r in json.load(sys.stdin)}
 assert "dispatched_at" not in rows["legacy-two"]
+assert "reported_at" not in rows["legacy-two"]
 assert rows["stamped-one"]["dispatched_at"] == "2026-08-24T12:00:00Z"
+assert "reported_at" not in rows["stamped-one"]
+assert rows["held-one"]["dispatched_at"] == "2026-08-24T10:00:00Z"
+assert rows["held-one"]["reported_at"] == "2026-08-24T11:00:00Z"
 '; then
-  ok "list --json parses mixed legacy and stamped rows"
+  ok "list --json parses mixed legacy, stamped, and reported rows"
 else
   fail "mixed list --json parse: $mixed_json"
 fi
@@ -124,6 +129,7 @@ rm -f "$CP_JOBS_FILE"
 expect_exit 1 "duplicate add refused" "$CP" jobs add cp-one worker=other worktree="$TMP/wt" branch=x
 "$CP" jobs set cp-one worker=crisp-oak >/dev/null
 expect_stdout "crisp-oak" "set updates worker" "$CP" jobs list
+# set preserves dispatched_at; reported stamps reported_at once
 stamp_before="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("dispatched_at",""))')"
 "$CP" jobs set cp-one branch=feat/updated >/dev/null
 stamp_after="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("dispatched_at",""))')"
@@ -131,6 +137,35 @@ if [[ -n "$stamp_before" && "$stamp_before" == "$stamp_after" ]]; then
   ok "set preserves dispatched_at"
 else
   fail "set preserves dispatched_at (before=$stamp_before after=$stamp_after)"
+fi
+"$CP" jobs reported cp-one >/dev/null
+reported_json="$("$CP" jobs list --json)"
+if printf '%s\n' "$reported_json" | python3 -c '
+import json, sys, re
+r = json.load(sys.stdin)[0]
+assert r["job"] == "cp-one"
+assert "reported_at" in r
+assert re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", r["reported_at"])
+'; then
+  ok "reported stamps reported_at"
+else
+  fail "reported stamps reported_at: $reported_json"
+fi
+reported_once="$(printf '%s\n' "$reported_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["reported_at"])')"
+"$CP" jobs reported cp-one >/dev/null
+reported_twice="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["reported_at"])')"
+if [[ "$reported_once" == "$reported_twice" ]]; then
+  ok "reported is idempotent (preserves first stamp)"
+else
+  fail "reported is idempotent (before=$reported_once after=$reported_twice)"
+fi
+set_after_report="$("$CP" jobs list --json | python3 -c 'import json,sys; r=json.load(sys.stdin)[0]; print(r.get("reported_at",""))')"
+"$CP" jobs set cp-one worker=crisp-oak >/dev/null
+set_preserve_report="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("reported_at",""))')"
+if [[ -n "$set_after_report" && "$set_after_report" == "$set_preserve_report" ]]; then
+  ok "set preserves reported_at"
+else
+  fail "set preserves reported_at (before=$set_after_report after=$set_preserve_report)"
 fi
 "$CP" jobs "done" cp-one >/dev/null
 expect_no_stdout "cp-one" "done drops the runtime row" "$CP" jobs list
@@ -152,6 +187,8 @@ expect_exit 1 "add rejects delivery=" "$CP" jobs add cp-x worker=a worktree="$TM
 expect_exit 1 "set rejects status=" "$CP" jobs set cp-keep status=done
 expect_exit 1 "set rejects pr=" "$CP" jobs set cp-keep pr=https://example.test/pull/1
 expect_exit 1 "set rejects note=" "$CP" jobs set cp-keep note=cp-keep
+expect_exit 1 "reported rejects pr=" "$CP" jobs reported cp-keep pr=https://example.test/pull/1
+expect_exit 1 "reported unknown id fails" "$CP" jobs reported cp-missing
 expect_exit 1 "done rejects pr=" "$CP" jobs "done" cp-keep pr=https://example.test/pull/1
 expect_stdout "cp-keep" "refused done pr= leaves the row" "$CP" jobs list
 
