@@ -208,18 +208,60 @@ expect_rc_msg 2 "never re-dispatch" "dispatch help says never re-dispatch" \
 expect_rc_msg 2 "queued, not received" "dispatch help says queued not received" \
   "$CP" dispatch --help
 
-# promote-not-spawn: live worker on a project worktree; no lease
+# promote-not-spawn: scoped to the target worktree, not the whole project
 reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-promo" >/dev/null
+LEASE_PROMO="$(cd "$TMP/leased-promo" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_PROMO"
+
+# same worktree occupied → refuse (after lease; lease is returned)
 cat > "$CP_TEST_WHO" <<EOF
-[{"name":"idle-auk","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$CLONE"}]
+[{"name":"idle-auk","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$LEASE_PROMO"}]
 EOF
 expect_rc_msg 1 "promote-not-spawn: live worker idle-auk occupies" \
-  "idle occupant on the project is promote-not-spawn" \
-  "$CP" dispatch --project demo --br-id job-promo --task-file "$TMP/task.txt"
+  "idle occupant on the target worktree is promote-not-spawn" \
+  "$CP" dispatch --project demo --br-id job-promo-same --task-file "$TMP/task.txt"
 if grep -q 'get' "$CP_TEST_TH_LOG"; then
-  fail "promote-not-spawn does not call treehouse get"
+  ok "same-worktree promote-not-spawn leases before check"
 else
-  ok "promote-not-spawn does not call treehouse get"
+  fail "same-worktree promote-not-spawn should lease before check"
+fi
+if grep -q 'return' "$CP_TEST_TH_LOG"; then
+  ok "same-worktree promote-not-spawn returns the lease"
+else
+  fail "same-worktree promote-not-spawn should return the lease"
+fi
+
+# different worktree of the same project occupied → allow parallel dispatch
+reset_logs
+export CP_TEST_LEASE="$LEASE_PROMO"
+cat > "$CP_TEST_WHO" <<EOF
+[{"name":"swift-pebble","id":"def","parent":null,"kind":"cursor","state":"idle","pane":"%2","session":null,"cwd":"$CLONE"}]
+EOF
+printf 'Branch: job-promo-diff\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-promo-diff --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.promo-diff" || {
+  fail "different worktree occupied allows dispatch (err=$(cat "$TMP/err.promo-diff"))"
+}
+if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
+  ok "different worktree occupied allows dispatch"
+else
+  fail "different worktree occupied should reach muxa dispatch"
+fi
+
+# unoccupied → allow
+reset_logs
+export CP_TEST_LEASE="$LEASE_PROMO"
+printf '[]\n' > "$CP_TEST_WHO"
+printf 'Branch: job-promo-clear\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-promo-clear --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.promo-clear" || {
+  fail "unoccupied worktree allows dispatch (err=$(cat "$TMP/err.promo-clear"))"
+}
+if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
+  ok "unoccupied worktree allows dispatch"
+else
+  fail "unoccupied worktree should reach muxa dispatch"
 fi
 
 # missing project

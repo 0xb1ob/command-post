@@ -115,6 +115,15 @@ EOF
 expect_rc_msg 0 "clear: no other live registered worker" "idle worker on another cwd is clear" \
   "$CP" check --project demo "$WT"
 
+# different worktree of the same project does not collide
+git -C "$CLONE" worktree add -q "$TMP/wt2" >/dev/null
+WT2="$(cd "$TMP/wt2" && pwd -P)"
+set_who <<EOF
+[{"name":"peer-jay","id":"pqr","parent":null,"kind":"cursor","state":"busy","pane":"%7","session":null,"cwd":"$WT2"}]
+EOF
+expect_rc_msg 0 "clear: no other live registered worker" "busy worker on another project worktree is clear" \
+  "$CP" check --project demo "$WT"
+
 # leftover status key is ignored; occupancy reads state
 set_who <<EOF
 [{"name":"swift-oak","id":"abc","parent":null,"kind":"cursor","state":"idle","pane":"%1","session":null,"cwd":"$WT","status":"ghost"}]

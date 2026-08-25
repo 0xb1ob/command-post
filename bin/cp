@@ -2586,28 +2586,6 @@ require_muxa_bin() {
   fi
 }
 
-list_clone_worktrees() {
-  local clone="$1"
-  git -C "$clone" worktree list --porcelain 2>/dev/null \
-    | awk '/^worktree /{ sub(/^worktree /, ""); print }'
-}
-
-# Promote-not-spawn before a new lease: any idle|busy worker whose cwd is a
-# worktree of this project's clone (shared with check_occupancy).
-check_project_occupancy() {
-  local clone="$1"
-  local -a existing=()
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -n "$line" ]] || continue
-    existing+=("$line")
-  done < <(list_clone_worktrees "$clone")
-  if [[ ${#existing[@]} -eq 0 ]]; then
-    die "clone $clone has no worktrees — git worktree list failed; fix the clone"
-  fi
-  check_occupancy "${existing[@]}"
-}
-
 treehouse_get_lease() {
   local clone="$1" path
   require_treehouse
@@ -2970,9 +2948,6 @@ cmd_dispatch() {
   require_python3
   require_muxa
   require_worker_cmd "${agent_cmd[0]}" "$role" "$source"
-  if ! check_project_occupancy "$clone" >&2; then
-    exit 1
-  fi
 
   wt="$(treehouse_get_lease "$clone")"
   DISPATCH_LEASED_WT="$wt"
