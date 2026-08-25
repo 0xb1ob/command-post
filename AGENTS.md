@@ -154,8 +154,8 @@ only sanctioned reader.
 
 Retry: implementer dirty/red → re-dispatch a fresh pane with the SAME brief
 (`artifact get` again); never re-run research for an implementation failure.
-Gate revise loop is bounded by the tool. Never-ready (`[muxa] from=broker`)
-handling is unchanged. Hung researcher (artifact exists at the predeclared
+Gate revise loop is bounded by the tool. [Broker parent turns](#broker-parent-turns)
+unchanged. Hung researcher (artifact exists at the predeclared
 path, no envelope) → parent may `artifact add` + `gate` from that path.
 
 ## Pre-dispatch
@@ -245,24 +245,26 @@ for the token `Branch: ${branch}` (`bin/cp dispatch` sets branch=br-id) or the b
 Claude: never the bare branch (footer always shows cwd+branch — false positive) or the token (claude
 consumes the brief — false negative); use footer `Context: N%`, nonzero once consumed, else `receipt=unknown`
 — one check can't split a drop from claude's slow boot, so it never claims not-received. Do not loop tail.
-No signal and no `[muxa] from=broker` yet → wait for mail; do not re-dispatch.
+No [broker parent turn](#broker-parent-turns) yet → wait for mail; do not re-dispatch.
 Rationale: [reports/dispatch-hardening.md](reports/dispatch-hardening.md#first-brief-receipt).
 
 Follow-up mail (promote, or a second message to a running worker) is still `muxa send`.
 If that send matters for a later failure turn, `muxa send --json` returns `{"id","pane","from","to"}`.
 
-### Never ready (`[muxa] from=broker`)
+### Broker parent turns
 
-A `[muxa] from=broker` turn means the child never became ready — the brief was not
-pasted (no timeout-fallback). Ordinary mail; wake on it. Correlate with dispatch JSON `br_id` / `worker` / `worktree`. This repo's policy, not muxa's: do not retry, do not `muxa send` into the cold pane, do not
-treat dispatch JSON as a successful brief. From outside the worktree run
-`bin/cp teardown <br-id>` (branch still at the dispatch cut; no manual
-`treehouse return` / `jobs done` / `muxa kill` sequence) and report the failure.
-A small job is not an exception. Auto-restart is still forbidden.
+Ordinary `[muxa]` from the broker — wake on it. Correlate with dispatch JSON
+`br_id` / `worker` / `worktree`. Three shapes; wrong recovery is destructive:
+
+| Shape | Turn | Recovery |
+| --- | --- | --- |
+| Never ready | bare `[muxa] from=broker` | Child never ready; brief not pasted. From outside the worktree: `bin/cp teardown <br-id>`; report failure. No retry, no `muxa send` into cold pane, no auto-restart. |
+| Dispatch refused | `dispatch refused: … composer holds foreign input` | Healthy pane; foreign composer text blocked paste. **Not** never-ready — teardown is wrong. Operator clears composer; `muxa send --file brief.txt NAME`. No re-lease or re-dispatch. |
+| Dispatch unsubmitted | `dispatch unsubmitted:` | Positive evidence paste was not submitted (muxa 1.0.11; unlike the old anti-correlated broker warning — act on this). `muxa send NAME "Proceed with the job in the brief above."` — no re-dispatch or re-lease. Do not check broker `pending/`. |
 
 ### While they run
 
-- Never poll. Wake on `[muxa]` mail — including `[muxa] from=broker`.
+- Never poll. Wake on `[muxa]` mail — including [broker parent turns](#broker-parent-turns).
 - Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phases `stalled` / `held` in `bin/cp status` are advisory — [Stalled and held workers](#stalled-and-held-workers).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control (`muxa kill NAME|ID`) — never a chat message. Do not kill a worker that is still on a job.
