@@ -67,7 +67,7 @@ capability.
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
   is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy reads `muxa who --json`). `bin/cp status [--json]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes.
+  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` emits a self-contained snapshot page with the JSON embedded.
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
