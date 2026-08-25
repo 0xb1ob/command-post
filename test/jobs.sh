@@ -80,16 +80,58 @@ expect_stdout "$WT" "list includes worktree" "$CP" jobs list
 
 # JSON is the parseable form
 json="$("$CP" jobs list --json)"
-if printf '%s\n' "$json" | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows[0]["job"]=="cp-one"; assert rows[0]["worker"]=="swift-oak"; assert rows[0]["branch"]=="feat/explicit"'; then
-  ok "list --json is a JSON array of runtime rows"
+if printf '%s\n' "$json" | python3 -c 'import json,sys,re; rows=json.load(sys.stdin); r=rows[0]; assert r["job"]=="cp-one"; assert r["worker"]=="swift-oak"; assert r["branch"]=="feat/explicit"; assert "dispatched_at" in r; assert re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", r["dispatched_at"])'; then
+  ok "list --json is a JSON array of runtime rows with dispatched_at"
 else
   fail "list --json parse: $json"
 fi
+
+# legacy 4-column rows parse without dispatched_at
+cat > "$CP_JOBS_FILE" <<EOF
+#job	worker	worktree	branch
+legacy-one	old-worker	$WT	legacy-branch
+EOF
+legacy_json="$("$CP" jobs list --json)"
+if printf '%s\n' "$legacy_json" | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows[0]["job"]=="legacy-one"; assert "dispatched_at" not in rows[0]'; then
+  ok "list --json omits dispatched_at for legacy 4-column rows"
+else
+  fail "legacy list --json parse: $legacy_json"
+fi
+
+# mixed legacy + stamped rows in one file
+cat > "$CP_JOBS_FILE" <<EOF
+#job	worker	worktree	branch
+legacy-two	old-worker	$WT	legacy-two
+stamped-one	new-worker	$WT	stamped-branch	2026-08-24T12:00:00Z
+EOF
+mixed_json="$("$CP" jobs list --json)"
+if printf '%s\n' "$mixed_json" | python3 -c '
+import json, sys
+rows = {r["job"]: r for r in json.load(sys.stdin)}
+assert "dispatched_at" not in rows["legacy-two"]
+assert rows["stamped-one"]["dispatched_at"] == "2026-08-24T12:00:00Z"
+'; then
+  ok "list --json parses mixed legacy and stamped rows"
+else
+  fail "mixed list --json parse: $mixed_json"
+fi
+
+# fresh cp-one row for downstream duplicate/set/done tests
+rm -f "$CP_JOBS_FILE"
+"$CP" jobs add cp-one worker=swift-oak worktree="$TMP/wt" branch=feat/explicit >/dev/null
 
 # duplicate add fails; set updates; done drops
 expect_exit 1 "duplicate add refused" "$CP" jobs add cp-one worker=other worktree="$TMP/wt" branch=x
 "$CP" jobs set cp-one worker=crisp-oak >/dev/null
 expect_stdout "crisp-oak" "set updates worker" "$CP" jobs list
+stamp_before="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("dispatched_at",""))')"
+"$CP" jobs set cp-one branch=feat/updated >/dev/null
+stamp_after="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("dispatched_at",""))')"
+if [[ -n "$stamp_before" && "$stamp_before" == "$stamp_after" ]]; then
+  ok "set preserves dispatched_at"
+else
+  fail "set preserves dispatched_at (before=$stamp_before after=$stamp_after)"
+fi
 "$CP" jobs "done" cp-one >/dev/null
 expect_no_stdout "cp-one" "done drops the runtime row" "$CP" jobs list
 if "$CP" jobs list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)==[]'; then

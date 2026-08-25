@@ -180,6 +180,8 @@ n = next(x for x in d["nodes"] if x["id"] == "rustic-otter")
 assert n["joined_via"] == "jobs.worker", n
 assert n["br_id"] == "job-a", n
 assert n["title"] == "Add widget", n
+assert n["time_source"] == "br_updated_at", n
+assert n["timestamp"] == "2026-08-24T16:00:00Z", n
 '
 
 assert_py "join: worktree fallback (quiet-fox, worker column mismatches pane name)" '
@@ -551,6 +553,98 @@ assert payload["broker"]["queued"] == 0
   ok "quiet fleet html: embedded payload has queued=0"
 else
   fail "quiet fleet html: embedded payload has queued=0"
+fi
+
+# --- dispatched_at vs legacy br.updated_at proxy -------------------------
+TIME_TMP="$TMP/time-source"
+mkdir -p "$TIME_TMP"
+cat > "$TIME_TMP/who.json" <<EOF
+[
+  {"name":"root-pane","id":"r1","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"$TMP/home"},
+  {"name":"stamped-worker","id":"w1","parent":"root-pane","kind":"cursor","state":"busy","pane":"%2","session":null,"cwd":"$TMP/wt-stamped"},
+  {"name":"legacy-worker","id":"w2","parent":"root-pane","kind":"cursor","state":"busy","pane":"%3","session":null,"cwd":"$TMP/wt-legacy"}
+]
+EOF
+mkdir -p "$TIME_TMP/wt-stamped" "$TIME_TMP/wt-legacy"
+cat > "$TIME_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+cat > "$TIME_TMP/br-list.json" <<'EOF'
+[
+  {"id":"job-stamped","title":"Stamped job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
+  {"id":"job-legacy","title":"Legacy job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]}
+]
+EOF
+cat > "$TIME_TMP/jobs.tsv" <<EOF
+#job	worker	worktree	branch
+job-stamped	stamped-worker	$TMP/wt-stamped	job-stamped	2026-08-24T16:08:00Z
+job-legacy	legacy-worker	$TMP/wt-legacy	job-legacy
+EOF
+cat > "$TIME_TMP/br-list-stub.sh" <<EOF
+#!/bin/sh
+exec cat "$TIME_TMP/br-list.json"
+EOF
+chmod +x "$TIME_TMP/br-list-stub.sh"
+
+TIME_JSON="$(
+  CP_JOBS_FILE="$TIME_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $TIME_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $TIME_TMP/broker.json" \
+  BR_LIST_CMD="$TIME_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --json
+)"
+
+assert_time() {
+  local label="$1" script="$2"
+  if printf '%s' "$TIME_JSON" | python3 -c "$script"; then
+    ok "$label"
+  else
+    fail "$label"
+  fi
+}
+
+assert_time "time_source: stamped row uses dispatched_at (2m age)" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "stamped-worker")
+assert n["time_source"] == "dispatched_at", n
+assert n["timestamp"] == "2026-08-24T16:08:00Z", n
+'
+
+assert_time "time_source: legacy 4-column row keeps br_updated_at proxy (4d age)" '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "legacy-worker")
+assert n["time_source"] == "br_updated_at", n
+assert n["timestamp"] == "2026-08-20T08:00:00Z", n
+'
+
+TIME_HTML="$(
+  CP_JOBS_FILE="$TIME_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $TIME_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $TIME_TMP/broker.json" \
+  BR_LIST_CMD="$TIME_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --html
+)"
+if printf '%s' "$TIME_HTML" | python3 -c '
+import json, re, sys
+doc = sys.stdin.read()
+assert "dispatched_at" in doc
+assert "br_updated_at" in doc
+m = re.search(r"<script type=\"application/json\" id=\"fleet-data\">(.*?)</script>", doc, re.S)
+payload = json.loads(m.group(1))
+by_id = {n["id"]: n for n in payload["nodes"]}
+assert by_id["stamped-worker"]["time_source"] == "dispatched_at"
+assert by_id["legacy-worker"]["time_source"] == "br_updated_at"
+assert "TIME_SOURCE_LABEL" in doc
+assert "dispatched_at:" in doc
+assert "br_updated_at:" in doc
+'; then
+  ok "html: mixed fleet shows both time_source markers"
+else
+  fail "html: mixed fleet shows both time_source markers"
 fi
 
 if [[ "$failed" -ne 0 ]]; then
