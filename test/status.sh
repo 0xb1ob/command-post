@@ -420,6 +420,139 @@ else
   fail "human table golden fixture missing: $GOLDEN"
 fi
 
+# --- quiet fleet: broker counters default to 0, not None -------------------
+QUIET_TMP="$TMP/quiet"
+mkdir -p "$QUIET_TMP"
+cat > "$QUIET_TMP/who.json" <<'EOF'
+[{"name":"solo-root","id":"a1","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"/home/demo"}]
+EOF
+cat > "$QUIET_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+printf '[]\n' > "$QUIET_TMP/br-list.json"
+printf '#job\tworker\tworktree\tbranch\n' > "$QUIET_TMP/jobs.tsv"
+cat > "$QUIET_TMP/br-list-stub.sh" <<EOF
+#!/bin/sh
+exec cat "$QUIET_TMP/br-list.json"
+EOF
+chmod +x "$QUIET_TMP/br-list-stub.sh"
+
+QUIET_JSON="$(
+  CP_JOBS_FILE="$QUIET_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $QUIET_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $QUIET_TMP/broker.json" \
+  BR_LIST_CMD="$QUIET_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --json
+)"
+if printf '%s' "$QUIET_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+b = d["broker"]
+assert b["ok"] is True
+assert b["queued"] == 0, b["queued"]
+assert b["done"] == 0, b["done"]
+assert b["failed"] == 0, b["failed"]
+'; then
+  ok "quiet fleet JSON: missing broker counters default to 0"
+else
+  fail "quiet fleet JSON: missing broker counters default to 0"
+fi
+
+QUIET_TABLE="$(
+  CP_JOBS_FILE="$QUIET_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $QUIET_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $QUIET_TMP/broker.json" \
+  BR_LIST_CMD="$QUIET_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status
+)"
+if printf '%s\n' "$QUIET_TABLE" | grep -F -q 'BROKER ok queued=0 done=0 failed=0'; then
+  ok "quiet fleet human table: queued=0 not None"
+else
+  fail "quiet fleet human table: queued=0 not None (out: $QUIET_TABLE)"
+fi
+
+# --- HTML snapshot -------------------------------------------------------
+printf '%s' "$OUT" > "$TMP/expected-status.json"
+export STATUS_EXPECTED_JSON="$TMP/expected-status.json"
+HTML_OUT="$(
+  CP_JOBS_FILE="$CP_JOBS_FILE" \
+  MUXA_WHO_CMD="$MUXA_WHO_CMD" \
+  MUXA_BROKER_CMD="$MUXA_BROKER_CMD" \
+  BR_LIST_CMD="$BR_LIST_CMD" \
+  CP_STATUS_NOW="$CP_STATUS_NOW" \
+  "$CP" status --html
+)"
+
+assert_html() {
+  local label="$1" script="$2"
+  if printf '%s' "$HTML_OUT" | python3 -c "$script"; then
+    ok "$label"
+  else
+    fail "$label"
+  fi
+}
+
+assert_html "html: single self-contained document" '
+import sys
+doc = sys.stdin.read()
+assert doc.startswith("<!DOCTYPE html>"), doc[:80]
+assert doc.strip().endswith("</html>"), doc[-80:]
+assert doc.count("<html") == 1
+'
+
+assert_html "html: embeds JSON payload verbatim" '
+import json, re, sys
+doc = sys.stdin.read()
+m = re.search(r"<script type=\"application/json\" id=\"fleet-data\">(.*?)</script>", doc, re.S)
+assert m, "missing fleet-data script"
+embedded = m.group(1)
+payload = json.loads(embedded)
+assert payload["v"] == 1
+assert payload["generated_at"] == "2026-08-24T16:10:00Z"
+assert len(payload["nodes"]) > 0
+'
+
+assert_html "html: no external URL references" '
+import re, sys
+doc = sys.stdin.read()
+assert not re.search(r"https?://", doc), "http(s) URL found"
+assert not re.search(r"@import", doc), "@import found"
+assert not re.search(r"<link[^>]+href=", doc), "external link tag found"
+assert not re.search(r"<script[^>]+src=", doc), "external script tag found"
+'
+
+assert_html "html: payload matches --json for same fleet" '
+import json, os, re, sys
+doc = sys.stdin.read()
+m = re.search(r"<script type=\"application/json\" id=\"fleet-data\">(.*?)</script>", doc, re.S)
+embedded = json.loads(m.group(1))
+expected = json.load(open(os.environ["STATUS_EXPECTED_JSON"]))
+assert embedded == expected
+'
+
+QUIET_HTML="$(
+  CP_JOBS_FILE="$QUIET_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $QUIET_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $QUIET_TMP/broker.json" \
+  BR_LIST_CMD="$QUIET_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --html
+)"
+if printf '%s' "$QUIET_HTML" | python3 -c '
+import json, re, sys
+doc = sys.stdin.read()
+m = re.search(r"<script type=\"application/json\" id=\"fleet-data\">(.*?)</script>", doc, re.S)
+assert m
+payload = json.loads(m.group(1))
+assert payload["broker"]["queued"] == 0
+'; then
+  ok "quiet fleet html: embedded payload has queued=0"
+else
+  fail "quiet fleet html: embedded payload has queued=0"
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
   exit 1
