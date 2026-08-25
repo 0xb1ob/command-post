@@ -87,6 +87,12 @@ has "Never paste worker dumps into the block" "status block is not for worker du
 has "This is not \`bin/cp status\`" "status block is distinct from bin/cp status"
 has "[Status block](#status-block)" "parent job links to status block section"
 has "Awaiting you](#status-block) counts as such a decision" "ping-pong rule ties to awaiting you rows"
+has "Human decision = Awaiting you only" "human-blocked jobs appear only in awaiting you"
+has "never also in **Blocked**" "human-blocked jobs must not duplicate in blocked table"
+has "**Type** is required on every **Awaiting you** row" "awaiting you rows require decision type"
+has "\`approval\`" "approval decision type is defined"
+has "\`design\`" "design decision type is defined"
+has "\`authorization\`" "authorization decision type is defined"
 
 lacks "muxa unregister" "muxa unregister is gone (command does not exist)"
 lacks "muxa deliver" "muxa deliver is gone (delivery is the broker's alone)"
