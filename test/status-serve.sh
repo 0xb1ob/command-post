@@ -90,6 +90,69 @@ wait_curl() {
   return 1
 }
 
+# Return the PID listening on 127.0.0.1:PORT (the python server, not the shell wrapper).
+listener_pid() {
+  local port="$1"
+  lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null | head -n1 || true
+}
+
+port_is_listening() {
+  local port="$1"
+  [[ -n "$(listener_pid "$port")" ]]
+}
+
+# Start --serve, signal the listener (not the bash wrapper), assert port and process are gone.
+assert_stops_on_signal() {
+  local sig_name="$1" sig_num="$2" label="$3"
+  local port url_out err_out wrapper_pid listener i
+
+  port="$(pick_port)"
+  url_out="$TMP/sig-${sig_name}.out"
+  err_out="$TMP/sig-${sig_name}.err"
+  : >"$url_out"
+  : >"$err_out"
+
+  MUXA_WHO_CMD="$MUXA_WHO_CMD" MUXA_BROKER_CMD="$MUXA_BROKER_CMD" \
+    BR_LIST_CMD="$BR_LIST_CMD" CP_JOBS_FILE="$CP_JOBS_FILE" \
+    CP_STATUS_NOW="$CP_STATUS_NOW" CP_HOME="$CP_HOME" \
+    "$CP" status --serve --port "$port" >"$url_out" 2>"$err_out" &
+  wrapper_pid=$!
+
+  for i in $(seq 1 50); do
+    listener="$(listener_pid "$port")"
+    if [[ -n "$listener" ]] && wait_curl "http://127.0.0.1:${port}/api/status" 1; then
+      break
+    fi
+    if ! kill -0 "$wrapper_pid" 2>/dev/null; then
+      fail "$label (server exited before ready; stderr: $(cat "$err_out"))"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  listener="$(listener_pid "$port")"
+  if [[ -z "$listener" ]]; then
+    fail "$label (no listener on port $port)"
+    return 0
+  fi
+
+  kill "-$sig_num" "$listener" 2>/dev/null || kill "-$sig_num" "$wrapper_pid"
+
+  for i in $(seq 1 50); do
+    if ! port_is_listening "$port" && ! kill -0 "$listener" 2>/dev/null; then
+      kill "$wrapper_pid" 2>/dev/null || true
+      wait "$wrapper_pid" 2>/dev/null || true
+      ok "$label"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  fail "$label (listener pid=$listener still up or port $port still bound after ${sig_name})"
+  kill -9 "$listener" "$wrapper_pid" 2>/dev/null || true
+  wait "$wrapper_pid" 2>/dev/null || true
+}
+
 start_server() {
   local port="$1"
   PORT="$port"
@@ -97,12 +160,17 @@ start_server() {
   SERVE_ERR="$TMP/serve.err"
   : >"$URL_OUT"
   : >"$SERVE_ERR"
-  "$CP" status --serve --port "$port" >"$URL_OUT" 2>"$SERVE_ERR" &
+  MUXA_WHO_CMD="$MUXA_WHO_CMD" MUXA_BROKER_CMD="$MUXA_BROKER_CMD" \
+    BR_LIST_CMD="$BR_LIST_CMD" CP_JOBS_FILE="$CP_JOBS_FILE" \
+    CP_STATUS_NOW="$CP_STATUS_NOW" CP_HOME="$CP_HOME" \
+    "$CP" status --serve --port "$port" >"$URL_OUT" 2>"$SERVE_ERR" &
   SERVE_PID=$!
-  trap 'kill "$SERVE_PID" 2>/dev/null; wait "$SERVE_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+  SERVE_LISTENER=""
+  trap '[[ -n "${SERVE_LISTENER:-}" ]] && kill -9 "$SERVE_LISTENER" 2>/dev/null; kill -9 "$SERVE_PID" 2>/dev/null; wait "$SERVE_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
   local i=0
   while [[ "$i" -lt 50 ]]; do
-    if [[ -s "$URL_OUT" ]]; then
+    SERVE_LISTENER="$(listener_pid "$port")"
+    if [[ -n "$SERVE_LISTENER" && -s "$URL_OUT" ]]; then
       break
     fi
     if ! kill -0 "$SERVE_PID" 2>/dev/null; then
@@ -112,8 +180,8 @@ start_server() {
     i=$((i + 1))
     sleep 0.1
   done
-  if [[ ! -s "$URL_OUT" ]]; then
-    fail "server never printed URL"
+  if [[ -z "$SERVE_LISTENER" ]]; then
+    fail "server never bound listener on port $port"
     return 1
   fi
   if ! wait_curl "http://127.0.0.1:${port}/api/status"; then
@@ -122,6 +190,10 @@ start_server() {
   fi
   ok "server started on port $port"
 }
+
+# --- signal shutdown (listener must die, not just the shell wrapper) -------
+assert_stops_on_signal INT 2 "SIGINT stops listener and releases port"
+assert_stops_on_signal TERM 15 "SIGTERM stops listener and releases port"
 
 PORT="$(pick_port)"
 start_server "$PORT" || true
@@ -254,7 +326,12 @@ else
 fi
 
 # --- broker degrade --------------------------------------------------------
-kill "$SERVE_PID" 2>/dev/null || true
+kill -TERM "${SERVE_LISTENER:-}" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  port_is_listening "$PORT" || break
+  sleep 0.1
+done
+kill -9 "${SERVE_LISTENER:-}" "$SERVE_PID" 2>/dev/null || true
 wait "$SERVE_PID" 2>/dev/null || true
 trap 'rm -rf "$TMP"' EXIT
 
@@ -262,7 +339,13 @@ DEG_PORT="$(pick_port)"
 export MUXA_BROKER_CMD=false
 "$CP" status --serve --port "$DEG_PORT" >"$TMP/deg-url.out" 2>"$TMP/deg.err" &
 DEG_PID=$!
-trap 'kill "$DEG_PID" 2>/dev/null; wait "$DEG_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+DEG_LISTENER=""
+trap '[[ -n "${DEG_LISTENER:-}" ]] && kill -9 "$DEG_LISTENER" 2>/dev/null; kill -9 "$DEG_PID" 2>/dev/null; wait "$DEG_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+for _ in $(seq 1 50); do
+  DEG_LISTENER="$(listener_pid "$DEG_PORT")"
+  [[ -n "$DEG_LISTENER" ]] && break
+  sleep 0.1
+done
 wait_curl "http://127.0.0.1:${DEG_PORT}/api/status" || fail "degraded server unreachable"
 
 DEG_JSON="$(curl -sf "http://127.0.0.1:${DEG_PORT}/api/status")"
@@ -279,7 +362,12 @@ fi
 unset MUXA_BROKER_CMD
 export MUXA_BROKER_CMD="cat $TMP/broker.json"
 
-kill "$DEG_PID" 2>/dev/null || true
+kill -TERM "${DEG_LISTENER:-}" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  port_is_listening "$DEG_PORT" || break
+  sleep 0.1
+done
+kill -9 "${DEG_LISTENER:-}" "$DEG_PID" 2>/dev/null || true
 wait "$DEG_PID" 2>/dev/null || true
 trap 'rm -rf "$TMP"' EXIT
 

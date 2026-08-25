@@ -2599,6 +2599,7 @@ import signal
 import socketserver
 import subprocess
 import sys
+import threading
 
 PROG = os.environ["CP_STATUS_PROG"]
 PORT = int(os.environ["CP_STATUS_SERVE_PORT"])
@@ -2659,6 +2660,15 @@ def main():
     print(f"http://127.0.0.1:{bound_port}/", flush=True)
     print("[cp] Ctrl-C to stop", file=sys.stderr)
 
+    # serve_forever must not run on the main thread: shutdown() from a signal
+    # handler deadlocks when the same thread is blocked inside serve_forever().
+    server_thread = threading.Thread(
+        target=httpd.serve_forever,
+        kwargs={"poll_interval": 0.5},
+        name="cp-status-serve",
+        daemon=False,
+    )
+
     def shutdown(_signum, _frame):
         httpd.shutdown()
 
@@ -2668,7 +2678,10 @@ def main():
         signal.signal(signal.SIGHUP, shutdown)
     except (AttributeError, ValueError):
         pass
-    httpd.serve_forever()
+
+    server_thread.start()
+    server_thread.join()
+    httpd.server_close()
 
 
 if __name__ == "__main__":
