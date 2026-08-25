@@ -19,6 +19,7 @@ fail() {
 }
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-doctor.XXXXXX")"
+ORIG_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
 
 export CP_HOME="$TMP/home"
@@ -34,14 +35,14 @@ ensure_host_utils() {
   mkdir -p "$TMP/host"
   local c p
   for c in rm mkdir mktemp bash awk sed grep chmod printf python3; do
-    p="$(command -v "$c" 2>/dev/null || true)"
-    [[ -n "$p" ]] && ln -sf "$p" "$TMP/host/$c"
+    p="$(PATH="$ORIG_PATH" command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" && "$p" != "$TMP/host/$c" ]] && ln -sf "$p" "$TMP/host/$c"
   done
 }
 
 # Host tools from real PATH except worker CLIs (empty shim dir only has our shims).
 host_path() {
-  printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+  printf '%s' "$ORIG_PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
     case "$d" in
       "$TMP/shim"|"$TMP/host") continue ;;

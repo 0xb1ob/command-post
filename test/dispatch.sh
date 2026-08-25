@@ -37,6 +37,7 @@ expect_rc_msg() {
 }
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-dispatch.XXXXXX")"
+ORIG_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
 
 export CP_HOME="$TMP/home"
@@ -154,14 +155,14 @@ make_worker_shim agent
 ensure_host_utils() {
   mkdir -p "$TMP/host"
   local c p
-  for c in rm mkdir mktemp git bash awk sed grep chmod printf python3; do
-    p="$(command -v "$c" 2>/dev/null || true)"
-    [[ -n "$p" ]] && ln -sf "$p" "$TMP/host/$c"
+  for c in rm mkdir mktemp git awk sed grep chmod printf python3; do
+    p="$(PATH="$ORIG_PATH" command -v "$c" 2>/dev/null || true)"
+    [[ -n "$p" && "$p" != "$TMP/host/$c" ]] && ln -sf "$p" "$TMP/host/$c"
   done
 }
 
 worker_host_path() {
-  printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do
+  printf '%s' "$ORIG_PATH" | tr ':' '\n' | while IFS= read -r d; do
     [[ -n "$d" ]] || continue
     case "$d" in
       "$TMP/shim"|"$TMP/host") continue ;;
@@ -173,7 +174,14 @@ worker_host_path() {
 
 set_test_path() {
   ensure_host_utils
-  export PATH="$TMP/shim:$TMP/host:$(worker_host_path)"
+  local bash_dir=""
+  bash_dir="$(PATH="$ORIG_PATH" command -v bash 2>/dev/null || true)"
+  bash_dir="${bash_dir%/*}"
+  if [[ -n "$bash_dir" ]]; then
+    export PATH="$TMP/shim:$TMP/host:$bash_dir:$(worker_host_path)"
+  else
+    export PATH="$TMP/shim:$TMP/host:$(worker_host_path)"
+  fi
 }
 
 ensure_host_utils
