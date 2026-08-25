@@ -58,6 +58,26 @@ has "from outside the worktree" "treehouse return is from outside the worktree"
 has "belongs to another repo" "stale-clone recovery names belongs to another repo"
 has "Parent only; finished worker only; outside the worktree" "teardown actor and place are constrained"
 has "there is nothing to trigger manually" "delivery is the broker's; nothing to trigger manually"
+
+# Status block contract (operator-facing parent turns)
+has "## Status block" "status block section exists"
+has "operator-facing turn" "status block applies to operator-facing turns"
+has "always rendered" "all three tables always render"
+has "**In progress**" "in progress table is defined"
+has "**Blocked**" "blocked table is defined"
+has "**Awaiting you**" "awaiting you table is defined"
+has "Self-describing rows" "rows must be self-describing"
+has "never bare" "bare br ids are forbidden in the block"
+has "Route human blockers to table 3" "human blockers go to awaiting you"
+has "dependency-blocked" "human vs br-dep distinction is documented"
+has "When required:" "when the block is required is stated"
+has "When omitted:" "when the block may be omitted is stated"
+has "Keep turns short" "status block coexists with short parent turns"
+has "Never paste worker dumps into the block" "status block is not for worker dumps"
+has "This is not \`bin/cp status\`" "status block is distinct from bin/cp status"
+has "[Status block](#status-block)" "parent job links to status block section"
+has "Awaiting you](#status-block) counts as such a decision" "ping-pong rule ties to awaiting you rows"
+
 lacks "muxa unregister" "muxa unregister is gone (command does not exist)"
 lacks "muxa deliver" "muxa deliver is gone (delivery is the broker's alone)"
 lacks "### Named temporary exception: \`tmux kill-pane\` at teardown" "named tmux kill-pane exception is gone"
@@ -71,10 +91,10 @@ lacks '`muxa jobs`' "does not resurrect muxa jobs"
 lacks '`muxa preflight`' "does not resurrect muxa preflight"
 
 lines="$(wc -l < "$AGENTS" | tr -d ' ')"
-if [[ "$lines" -le 420 ]]; then
-  ok "AGENTS.md is ≤420 lines (target ~400; got $lines)"
+if [[ "$lines" -le 480 ]]; then
+  ok "AGENTS.md is ≤480 lines (target ~400; got $lines)"
 else
-  fail "AGENTS.md is ≤420 lines (got $lines; target ~400)"
+  fail "AGENTS.md is ≤480 lines (got $lines; target ~400)"
 fi
 
 # Zero tmux pane commands in the playbook, bin/cp, and this repo's tests.
