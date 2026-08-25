@@ -5,8 +5,7 @@ description: >-
   decay/archive). Captures, curates, consolidates, and decays session memory
   under data/learnings.md, data/candidates.md, and data/archive.md. Use when
   the user asks to curate, consolidate, or archive memory; at session end;
-  when data/learnings.md is touched; every ~10 jobs; or when a worker result
-  or failure yields a lesson.
+  every ~10 jobs; or when a worker result yields a machine-local lesson.
 ---
 
 # cp-memory
@@ -14,22 +13,38 @@ description: >-
 Command-post session-memory curation (capture, inspect-then-update,
 decay/archive).
 
-Operationalize the Memory contract in `AGENTS.md`. File
-contracts (header + format) are created by `bin/install.sh` when the files are
-absent. Do not invent a second schema. Do not commit `data/`.
+Operationalize the Memory contract in `AGENTS.md`. File contracts are created
+by `bin/install.sh` when absent. Do not invent a second schema. Do not commit
+`data/`.
 
-Run this in the command-post **home** checkout (orchestrator / root pane:
+Run in the command-post **home** checkout (orchestrator / root pane:
 `muxa parent` is empty). Do not write `data/` from a leased worktree.
+
+## Fresh-home test (routing)
+
+Before any write to `data/learnings.md`, ask:
+
+> Would a fresh, clean command-post home need this?
+
+| Answer | Destination |
+|--------|-------------|
+| Yes — general orchestration rule | **AGENTS.md** (rule) + **reports/** (rationale); open a PR |
+| Yes — but it is a product defect | Tracked issue (#74–#77, muxa, …); workaround in learnings only until fixed |
+| No — this machine's environment only | `data/learnings.md` |
+| Not yet sure — needs one more observation | `data/candidates.md` |
+
+Anything that generalizes to all homes is a **contract edit**, not memory.
+Job history lives in **br**. Project-intrinsic facts → target repo's `AGENTS.md`
+via worker PR.
 
 ## When to run
 
 | Trigger | Pass |
 |---------|------|
-| Worker result or failure, and a lesson was observed | **Capture** only |
-| User asks to curate / consolidate / archive memory | **Curation** (includes decay + budget) |
+| Worker result or failure, machine-local lesson observed | **Capture** only |
+| User asks to curate / consolidate / archive memory | **Curation** |
 | Session end | **Curation** |
-| `data/learnings.md` is about to be touched | **Curation** before/as you write |
-| ~10 jobs since the last curation this session | **Curation** |
+| ~10 jobs since last curation | **Curation** |
 
 Most jobs yield nothing. Capture is not promotion.
 
@@ -37,157 +52,85 @@ Most jobs yield nothing. Capture is not promotion.
 
 | File | Role | Write rule |
 |------|------|------------|
-| `data/learnings.md` | Curated core; always loaded; ~60 lines / ~1,500 tokens | Inspect-then-update only |
-| `data/candidates.md` | Reflection candidates; never loaded wholesale | Append-only |
-| `data/archive.md` | Cold tier; never loaded at session start | Append stale entries with provenance |
+| `data/learnings.md` | Machine-local residue + interim workarounds | Inspect-then-update; stay small |
+| `data/candidates.md` | Observations awaiting routing | Append-only |
+| `data/archive.md` | Demoted or absorbed entries | Append with provenance |
 
-Read the HTML contract in each file before writing. Job history lives in **br**
-(closed issues + comments), not here.
+Read each file's HTML contract before writing.
 
 Write shapes (from `bin/install.sh`; do not add fields):
 
 ```
-# candidates.md — one dated line; failures/blockers include a one-sentence root cause
+# candidates.md — one dated line
 YYYY-MM-DD <one-line lesson>
 
 # learnings.md — one line each
 - YYYY-MM-DD what happened; what to do; evidence: <source>. <!--tier-->
 
-# archive.md
-- YYYY-MM-DD (from data/learnings.md, <!--a:…-->, archived YYYY-MM-DD): <entry>. Reason: <why>
+# archive.md — absorbed to contract
+- YYYY-MM-DD (from data/learnings.md, <!--…-->, archived YYYY-MM-DD): <entry>. Reason: <why>. Now: AGENTS.md §X / reports/foo.md#anchor
 ```
 
-Tiers (trailing HTML comments on learnings lines only):
-
-- `<!--P-->` pinned — never decays
-- `<!--a:YYYY-MM-DD-->` aging — stale at ≥30 days since last reinforcement
-- `<!--p:YYYY-MM-DD-->` perishable — stale at ≥7 days; the line must name a checkable expiry (ticket, version, dated expectation)
-
-Default new entries to aging. Use pinned only for standing orchestration rules.
-Use perishable only when a checkable condition is in the text. An entry that
-cannot name one is aging, not perishable.
+Tiers on learnings lines only: `<!--P-->` pinned; `<!--a:DATE-->` aging (≥30d);
+`<!--p:DATE-->` perishable (≥7d; must name expiry e.g. issue #N).
 
 ## Capture
 
-On a worker's final report (done / blocker / failed), ask:
+On a worker's final report, ask whether the lesson is machine-local or an
+un-promoted workaround. If it generalizes → **candidate for contract PR**, not
+learnings — append to `data/candidates.md` with a note to route to AGENTS.md.
 
-1. What failed or surprised?
-2. What would we do differently next time?
-3. What should the next dispatch to this repo know?
+Append one dated line to `data/candidates.md` when:
 
-If the answer is a **cross-repo / orchestration** lesson that could recur,
-append **one** dated line to `data/candidates.md`. Skip otherwise.
+- Environment-specific (paths, TMUX shell env, local muxa recovery before upstream fix)
+- Interim workaround tied to an open issue with a named expiry
 
-Failures and blockers: capture when a generalization is worth promoting;
-include the root cause in that one line. One-off blips: skip.
+Skip: job outcomes, PR URLs, rules every clone needs, project-intrinsic facts.
 
-Do not capture:
-
-- Job outcomes, PR URLs, or chronology — those belong in br
-- Project-intrinsic facts ("repo X's tests need flag Y") — those go to that
-  repo's `AGENTS.md` via a worker PR (report the need; do not dispatch unasked)
-- Preferences that belong in `captain.md`
-
-Do not rewrite or delete candidate lines. Do not touch `data/learnings.md`
-during capture.
-
-```
-2026-08-19 Two workers on the same clone primary checkout tangled branches; lease one worktree per worker.
-2026-08-19 Blocker: treehouse return from inside the worktree killed the worker shell (root cause: return terminates the process tree). Teardown from outside only.
-```
+Do not touch `data/learnings.md` during capture.
 
 ## Curation
 
-Inspect-then-update. Never blind-append to `data/learnings.md`. Every write
-leaves that file more accurate, not merely longer.
-
-1. Read `data/learnings.md` in full. Do not write yet.
-2. Read `data/candidates.md`.
-3. Classify each unpromoted candidate against current learnings:
-
-   | Class | Action |
-   |-------|--------|
-   | Not general / noise | Skip. Leave the candidate line. |
-   | Job history | Skip. It belongs in br. |
-   | Project-intrinsic | Skip. Report that it needs a worker PR to that repo's `AGENTS.md`. |
-   | Duplicate | Fold any new evidence into the existing line. Prefer one sentence over a second entry. |
-   | Superseding | Rewrite the existing line in place. |
-   | Obsoleting | Archive the old line, then write the new truth. |
-   | New and in scope | Add one dated learnings line with a tier marker and `evidence:`. |
-
-4. Run [Decay](#decay) on every dated learnings entry.
-5. Enforce the budget ([Consolidation](#consolidation)).
-6. Write the considered `data/learnings.md`. Rewrite affected entries; do not
-   append a near-duplicate.
-7. Append archived lines to `data/archive.md`.
-8. Leave `data/candidates.md` unchanged (append-only; capture ≠ promotion).
-
-Evidence is a br id, candidate date, or other grounded source — not "session".
-Date a new or rewritten learnings line with today. Refresh a tier date only on
-[reinforcement](#decay).
+1. Read `data/learnings.md` and `data/candidates.md` in full.
+2. Route generalizable candidates to contract edits (PR) — do not promote them
+   into learnings.
+3. Classify remaining learnings: duplicate / superseding / obsoleting / archive.
+4. Run decay on dated entries.
+5. Enforce budget (~60 lines learnings).
+6. Write learnings; append archived lines with **Now:** provenance (file + section).
+7. Leave `data/candidates.md` append-only except never rewrite/delete lines.
 
 ## Consolidation
-
-Before saving `data/learnings.md`:
 
 ```bash
 wc -l data/learnings.md
 ```
 
-Over ~60 lines (or obviously over ~1,500 tokens): fold duplicates, shorten
-prose, demote aging/perishable entries to `data/archive.md` until under.
-Pinned entries are never dropped to shorten the file. The install.sh header
-comment is part of the file; do not strip it and do not duplicate it.
+Over ~60 lines: archive absorbed or stale entries until under. Pinned entries
+are not dropped to save space.
 
 ## Decay
 
-Lazy only — clocks tick during a curation pass, not in the background. Today's
-date vs the marker date:
-
-- Perishable ≥7d → check the named condition. Still open: refresh the date.
-  Resolved, expired, or no longer checkable: archive.
-- Aging ≥30d with no reinforcement this period → archive with reason.
-- Pinned → never decays.
-
-Reinforcement: the fact was used, confirmed, or re-derived this session.
-Re-reading `data/learnings.md` is never reinforcement.
-
-Never delete. Archive records keep the original line plus source file, tier
-marker, date moved, and a one-line reason. Recovery is `rg` plus copy-back
-into `data/learnings.md` via inspect-then-update.
-
-```
-- 2026-07-01 (from data/learnings.md, <!--a:2026-07-01-->, archived 2026-08-19): treehouse lease used --foo. Reason: aging, unreinforced 30d; flag renamed.
-```
-
-Copy the entry's actual tier marker into the provenance, not always `<!--a:…-->`.
+Lazy at curation only. Perishable ≥7d → check named condition; aging ≥30d
+unreinforced → archive. Reinforcement = used this session, not re-reading memory.
+Never delete.
 
 ## Retrieval
 
-Not a write pass. Already in AGENTS.md:
+- **Session start:** read `data/learnings.md` (residue should be brief).
+- **Pre-dispatch:** AGENTS.md + reports first; `rg -i "<repo>" data/` only if needed.
 
-- **Session start:** read `data/learnings.md` in full.
-- **Pre-dispatch:** `rg -i "<repo-name>" data/` and paste at most 2–3 hits into
-  the worker brief.
-
-Do not dump `data/candidates.md` or `data/archive.md` into session context.
-Need a past job? `br list -s closed --json`, `br search "<query>" -a --json`,
-or `br show <id> --json`.
+Do not load `data/archive.md` wholesale. Past jobs: `br list`, `br search`.
 
 ## Report
 
-After a pass, one line per file touched: `unchanged` / `captured` / `rewritten`
-/ `archived`. Counts: candidates appended, learnings promoted or folded, lines
-archived, `wc -l` on `data/learnings.md`. Name any project-intrinsic finding
-that still needs a worker PR. Do not paste file dumps.
+One line per file: `unchanged` / `captured` / `rewritten` / `archived` /
+`routed-to-contract`. Counts and any contract PR still needed. No file dumps.
 
 ## Do not
 
-- Invent `memory/jobs.md`, `memory/decisions.md`, or extra markers/fields
-- Put job lifecycle history in learnings (br owns that)
-- Blind-append to `data/learnings.md` or rewrite `data/candidates.md`
-- Delete entries; archive instead
-- Commit `data/`, `projects/`, or `.beads/`
-- Edit a target repo's `AGENTS.md` from this pane — dispatch a worker
-- Run capture/curation because a scout result "seems useful"; promotion still
-  needs a curation pass
+- Promote general orchestration rules into learnings (they belong in AGENTS.md)
+- Blind-append to learnings or rewrite candidates
+- Delete entries
+- Commit `data/`
+- Edit a target repo's AGENTS.md from the orchestrator pane without dispatch
