@@ -534,6 +534,14 @@ expected = json.load(open(os.environ["STATUS_EXPECTED_JSON"]))
 assert embedded == expected
 '
 
+assert_html "html: snapshot pane preview degrades without live serve" '
+import sys
+doc = sys.stdin.read()
+assert "boot({ live: false })" in doc
+assert "status --serve" in doc
+assert "static snapshot" in doc
+'
+
 QUIET_HTML="$(
   CP_JOBS_FILE="$QUIET_TMP/jobs.tsv" \
   MUXA_WHO_CMD="cat $QUIET_TMP/who.json" \
