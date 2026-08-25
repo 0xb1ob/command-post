@@ -68,6 +68,30 @@ exec cat "$TMP/br-list.json"
 EOF
 chmod +x "$TMP/br-list-stub.sh"
 
+cat > "$TMP/tail-count" <<'EOF'
+0
+EOF
+
+cat > "$TMP/tail-stub.sh" <<EOF
+#!/bin/sh
+count="\$(cat "$TMP/tail-count")"
+count=\$((count + 1))
+echo "\$count" > "$TMP/tail-count"
+alias="\$1"
+case "\$alias" in
+  solo-root)
+    printf '%s\n' '\$ echo hello' 'hello'
+    exit 0
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+EOF
+chmod +x "$TMP/tail-stub.sh"
+
+export MUXA_TAIL_CMD="$TMP/tail-stub.sh"
+
 export MUXA_WHO_CMD="cat $TMP/who.json"
 export MUXA_BROKER_CMD="cat $TMP/broker.json"
 export BR_LIST_CMD="$TMP/br-list-stub.sh"
@@ -239,6 +263,56 @@ else
   fail "GET /api/status JSON equals status --json"
 fi
 
+# --- /api/pane (on-demand muxa tail; not status poll) ----------------------
+echo 0 > "$TMP/tail-count"
+PANE_JSON="$(curl -sf "http://127.0.0.1:${PORT}/api/pane?alias=solo-root")"
+if printf '%s' "$PANE_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d.get("ok") is True, d
+assert d.get("alias") == "solo-root", d
+assert any(l.get("text") == "hello" for l in d.get("lines", [])), d
+'; then
+  ok "GET /api/pane returns muxa tail lines for known alias"
+else
+  fail "GET /api/pane returns muxa tail lines for known alias"
+fi
+
+PANE_404_RC=0
+PANE_404="$(curl -s -o "$TMP/pane-404.json" -w '%{http_code}' "http://127.0.0.1:${PORT}/api/pane?alias=missing-alias")" || PANE_404_RC=$?
+if [[ "$PANE_404" == "404" ]] && python3 -c '
+import json
+d = json.load(open("'"$TMP"'/pane-404.json"))
+assert d.get("ok") is False, d
+'; then
+  ok "GET /api/pane unknown alias returns 404 not 500"
+else
+  fail "GET /api/pane unknown alias returns 404 not 500 (code=$PANE_404)"
+fi
+
+echo 0 > "$TMP/tail-count"
+for _ in 1 2 3; do
+  curl -sf "http://127.0.0.1:${PORT}/api/status" >/dev/null
+done
+TAIL_AFTER_STATUS="$(cat "$TMP/tail-count")"
+if [[ "$TAIL_AFTER_STATUS" == "0" ]]; then
+  ok "status poll does not invoke muxa tail"
+else
+  fail "status poll does not invoke muxa tail (tail-count=$TAIL_AFTER_STATUS)"
+fi
+
+PANE_DIRECT="$(
+  MUXA_WHO_CMD="$MUXA_WHO_CMD" MUXA_BROKER_CMD="$MUXA_BROKER_CMD" \
+  MUXA_TAIL_CMD="$MUXA_TAIL_CMD" BR_LIST_CMD="$BR_LIST_CMD" \
+  CP_JOBS_FILE="$CP_JOBS_FILE" CP_STATUS_NOW="$CP_STATUS_NOW" CP_HOME="$CP_HOME" \
+  "$CP" status --pane solo-root
+)"
+if printf '%s' "$PANE_DIRECT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"]'; then
+  ok "status --pane CLI returns JSON for known alias"
+else
+  fail "status --pane CLI returns JSON for known alias"
+fi
+
 # --- HTML ------------------------------------------------------------------
 HTML_PAGE="$(curl -sf "http://127.0.0.1:${PORT}/")"
 assert_html() {
@@ -263,6 +337,13 @@ import sys
 doc = sys.stdin.read()
 assert "fetch" in doc
 assert "/api/status" in doc
+'
+
+assert_html "html: pane preview modal markup present" '
+import sys
+doc = sys.stdin.read()
+assert "fleet-preview" in doc
+assert "/api/pane" in doc
 '
 
 assert_html "html: no external URL references" '
