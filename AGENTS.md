@@ -342,7 +342,7 @@ Keep turns short: one or two sentences of prose (outcome headline, full PR URL),
 1. **In progress** — `Job`, `What`, `Worker`, `Repo`
 2. **Blocked** — `Job`, `What`, `Waiting on` (br dependency, gate, worker, CI —
    **not** a human decision)
-3. **Awaiting you** — `Decision needed`, `Why it matters`, `What it blocks`
+3. **Awaiting you** — `Type`, `Decision needed`, `Why it matters`, `What it blocks`
 
 `Job` cells pair the br id with a short plain-language label
 (`command-post-lqn3 — pick hosting target`). **Self-describing rows:** never bare
@@ -352,6 +352,13 @@ ids; the reader must not run `br show` to understand the block.
 **Blocked**. Work waiting on **your** answer (infra choice, scope call, gate
 escalate) belongs in **Awaiting you** even when br still lists the issue as
 dependency-blocked.
+**Human decision = Awaiting you only.** When your decision is the sole blocker,
+the job appears **only** in **Awaiting you** — never also in **Blocked** — with
+the job id in **What it blocks**; never duplicate the same human blockage across
+both tables.
+**Type** is required on every **Awaiting you** row: `approval` (ship/merge gate
+on finished verified work), `design` (scope/architecture choice authorizing new
+work), `authorization` (whether to start or prioritize work).
 
 Example (idle session):
 
@@ -367,9 +374,9 @@ Example (idle session):
 | — | none | — |
 
 ### Awaiting you
-| Decision needed | Why it matters | What it blocks |
-| --- | --- | --- |
-| — | none | — |
+| Type | Decision needed | Why it matters | What it blocks |
+| --- | --- | --- | --- |
+| — | none | — | — |
 ```
 
 This is not `bin/cp status` (live fleet snapshot). The parent **writes** this
