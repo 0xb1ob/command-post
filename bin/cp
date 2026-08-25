@@ -8,7 +8,7 @@
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
 #   bin/cp teardown ID
-#   bin/cp status [--json] [--html]
+#   bin/cp status [--json] [--html] [--serve [--port N]]
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
@@ -72,8 +72,9 @@
 # operational_persistent = same on the immediately prior gate run (model
 # likely cannot meet the parse contract — swap --model or surface to caller).
 #
-# status: single-shot, read-only fleet snapshot ({v,generated_at,home,
-# broker,nodes[],edges[]}, a human table, or --html self-contained page).
+# status: read-only fleet snapshot ({v,generated_at,home,broker,nodes[],edges[]},
+# a human table, --html self-contained page, or --serve foreground localhost
+# dashboard). --serve is opt-in blocking HTTP on 127.0.0.1; not a daemon.
 # Composes
 # muxa who --json, muxa broker status (exactly once; degrades to ok:false
 # rather than aborting), state/jobs.tsv, and br list --json (never br
@@ -116,22 +117,24 @@ usage() {
   printf '       %s gate ID [--model M]\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       %s teardown ID\n' "$PROG" >&2
-  printf '       %s status [--json] [--html]\n' "$PROG" >&2
+  printf '       %s status [--json] [--html] [--serve [--port N]]\n' "$PROG" >&2
   exit 2
 }
 
 usage_status() {
-  printf 'usage: %s status [--json] [--html]\n' "$PROG" >&2
+  printf 'usage: %s status [--json] [--html] [--serve [--port N]]\n' "$PROG" >&2
   printf '\n' >&2
-  printf 'Single-shot, read-only fleet snapshot composed from muxa who --json,\n' >&2
-  printf 'muxa broker status, state/jobs.tsv, and br list --json. No server, no\n' >&2
-  printf 'daemon, no new persistence. Never calls tmux; never br show.\n' >&2
+  printf 'Read-only fleet snapshot composed from muxa who --json, muxa broker\n' >&2
+  printf 'status, state/jobs.tsv, and br list --json. No daemon, no new\n' >&2
+  printf 'persistence. --serve is an opt-in foreground localhost listener.\n' >&2
+  printf 'Never calls tmux; never br show.\n' >&2
   printf '\n' >&2
   printf 'Test overrides (not for live use): MUXA_WHO_CMD, MUXA_BROKER_CMD,\n' >&2
   printf 'BR_LIST_CMD, CP_JOBS_FILE, BR_DB, CP_STATUS_NOW, CP_STATUS_STALL_SEC.\n' >&2
   printf '\n' >&2
   printf 'Stdout (--json): {v, generated_at, home, broker, nodes[], edges[]}.\n' >&2
   printf 'Stdout (--html): self-contained HTML snapshot with the JSON embedded.\n' >&2
+  printf 'Stdout (--serve): prints http://127.0.0.1:PORT/ then blocks (default 8765).\n' >&2
   printf 'Without flags: a human-readable table with a BROKER summary line.\n' >&2
 }
 
@@ -1493,10 +1496,10 @@ cmd_jobs() {
   esac
 }
 
-# status: single-shot read-only fleet snapshot. Composes muxa who --json,
-# muxa broker status, state/jobs.tsv (via jobs_list_json), and br list --json
-# (never br show — that inlines comment bodies). No server, no daemon, no
-# new persistence, no tmux. See status_assemble for the phase/glyph matrix
+# status: read-only fleet snapshot. Composes muxa who --json, muxa broker status,
+# state/jobs.tsv (via jobs_list_json), and br list --json (never br show — that
+# inlines comment bodies). No daemon, no new persistence, no tmux; --serve is an
+# opt-in foreground listener. See status_assemble for the phase/glyph matrix
 # and the join precedence (jobs.worker -> jobs.worktree -> branch==br-id).
 status_who_json() {
   local -a who_cmd
@@ -2267,37 +2270,273 @@ sys.stdout.write(doc.replace("__FLEET_JSON__", safe))
 ' "$payload"
 }
 
-cmd_status() {
-  local json=0 html=0
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --json)
-        json=1
-        shift
-        ;;
-      --html)
-        html=1
-        shift
-        ;;
-      -h|--help)
-        usage_status
-        exit 2
-        ;;
-      *)
-        die_usage "unknown status arg $1"
-        ;;
-    esac
-  done
+# Live dashboard shell: same CSS/render JS as --html, but polls GET /api/status
+# every 10s (bgr3 broker interval). Shows a visible banner on fetch failure.
+status_render_html_live() {
+  python3 -c '
+import sys
 
-  if [[ "$json" -eq 1 && "$html" -eq 1 ]]; then
-    die_usage "status: use only one of --json or --html"
-  fi
+doc = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command Post Fleet Status</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f5;
+  --fg: #18181b;
+  --muted: #71717a;
+  --border: #d4d4d8;
+  --card: #ffffff;
+  --warn-bg: #fef3c7;
+  --warn-fg: #92400e;
+  --phase-working: #16a34a;
+  --phase-waiting: #ca8a04;
+  --phase-stalled: #dc2626;
+  --phase-held: #0891b2;
+  --phase-done: #059669;
+  --phase-warn: #d97706;
+  --phase-untracked: #71717a;
+  --err-bg: #fecaca;
+  --err-fg: #991b1b;
+  --err-border: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181b;
+    --fg: #fafafa;
+    --muted: #a1a1aa;
+    --border: #3f3f46;
+    --card: #27272a;
+    --warn-bg: #422006;
+    --warn-fg: #fcd34d;
+    --phase-working: #4ade80;
+    --phase-waiting: #facc15;
+    --phase-stalled: #f87171;
+    --phase-held: #22d3ee;
+    --phase-done: #34d399;
+    --phase-warn: #fb923c;
+    --phase-untracked: #a1a1aa;
+    --err-bg: #450a0a;
+    --err-fg: #fca5a5;
+    --err-border: #f87171;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+  padding: 1.25rem;
+}
+h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+.meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem; }
+.note { font-size: 0.8125rem; color: var(--muted); margin: 0.25rem 0 1rem; }
+.broker {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+}
+.broker.degraded {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--phase-warn);
+}
+.error-banner {
+  background: var(--err-bg);
+  color: var(--err-fg);
+  border: 1px solid var(--err-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+.error-banner.hidden { display: none; }
+section { margin-bottom: 1.5rem; }
+section h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  font-size: 0.875rem;
+}
+th, td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { background: var(--bg); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.glyph {
+  display: inline-block;
+  width: 1.25rem;
+  text-align: center;
+  font-weight: bold;
+}
+.phase-working .glyph { color: var(--phase-working); }
+.phase-waiting .glyph { color: var(--phase-waiting); }
+.phase-stalled .glyph { color: var(--phase-stalled); }
+.phase-held .glyph { color: var(--phase-held); }
+.phase-done .glyph { color: var(--phase-done); }
+.phase-ghost .glyph, .phase-orphaned .glyph { color: var(--phase-warn); }
+.phase-untracked .glyph { color: var(--phase-untracked); }
+.phase-label { font-size: 0.75rem; color: var(--muted); }
+.age-proxy { font-size: 0.75rem; color: var(--muted); display: block; }
+.edges { list-style: none; padding: 0; margin: 0; }
+.edges li {
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.edges li:last-child { border-bottom: none; }
+.edge-inferred { color: var(--muted); font-size: 0.75rem; }
+</style>
+</head>
+<body>
+<div id="error-banner" class="error-banner hidden" role="alert"></div>
+<div id="app"><p class="meta">Loading fleet status&hellip;</p></div>
+<script>
+(function () {
+  var REFRESH_MS = 10000;
+  var GLYPH = { dot: "\\u25cf", hollow: "\\u25d0", ring: "\\u25c9", cross: "\\u2717", check: "\\u2713", warn: "\\u26a0", dash: "\\u25cb" };
+  var TIME_SOURCE_LABEL = {
+    dispatched_at: "jobs.tsv dispatched_at (exact job start, stamped at bin/cp dispatch)",
+    br_updated_at: "br.updated_at (approximate dispatch proxy for legacy rows, not exact job start)"
+  };
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for status)\n' >&2
-    exit 2
-  fi
+  function parseTs(s) {
+    if (!s) return null;
+    var t = Date.parse(s);
+    return isNaN(t) ? null : t;
+  }
 
+  function age(ts, nowMs) {
+    if (!ts || !nowMs) return "-";
+    var delta = Math.max(0, Math.floor((nowMs - ts) / 1000));
+    if (delta < 60) return delta + "s";
+    if (delta < 3600) return Math.floor(delta / 60) + "m";
+    if (delta < 86400) return Math.floor(delta / 3600) + "h";
+    return Math.floor(delta / 86400) + "d";
+  }
+
+  function esc(s) {
+    if (s == null) return "-";
+    var d = document.createElement("div");
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function renderFleet(data) {
+    var app = document.getElementById("app");
+    var nowMs = parseTs(data.generated_at);
+    var html = "<h1>Command Post Fleet</h1>";
+    html += "<div class=\\"meta\\">Live &middot; " + esc(data.generated_at) + " &middot; home: " + esc(data.home) + "</div>";
+    html += "<p class=\\"note\\">Refreshes every 10s via <code>/api/status</code>. Age column uses <code>time_source</code> from the payload.</p>";
+
+    var broker = data.broker || {};
+    if (broker.ok) {
+      var drawing = (broker.drawing && broker.drawing.length) ? broker.drawing.join(", ") : "-";
+      html += "<div class=\\"broker\\">BROKER ok queued=" + esc(broker.queued) +
+        " done=" + esc(broker.done) + " failed=" + esc(broker.failed) +
+        " drawing=" + esc(drawing) + "</div>";
+    } else {
+      html += "<div class=\\"broker degraded\\">BROKER degraded (unavailable) &mdash; nodes below may be stale</div>";
+    }
+
+    html += "<section><h2>Nodes</h2><table><thead><tr>" +
+      "<th></th><th>Alias</th><th>Role</th><th>Phase</th><th>CLI</th><th>Project</th><th>Age</th><th>Title</th>" +
+      "</tr></thead><tbody>";
+
+    (data.nodes || []).forEach(function (n) {
+      var phase = n.phase || "untracked";
+      var g = GLYPH[n.glyph] || GLYPH.dash;
+      var ts = parseTs(n.timestamp);
+      var ageStr = age(ts, nowMs);
+      var ageCell = esc(ageStr);
+      if (n.time_source) {
+        ageCell += "<span class=\\"age-proxy\\" title=\\"" + esc(TIME_SOURCE_LABEL[n.time_source] || n.time_source) + "\\">via " + esc(n.time_source) + "</span>";
+      }
+      html += "<tr class=\\"phase-" + esc(phase) + "\\">" +
+        "<td><span class=\\"glyph\\">" + g + "</span></td>" +
+        "<td>" + esc(n.alias) + "</td>" +
+        "<td>" + esc(n.role) + "</td>" +
+        "<td>" + esc(phase) + "<span class=\\"phase-label\\"> " + esc(n.glyph) + "</span></td>" +
+        "<td>" + esc(n.cli) + "</td>" +
+        "<td>" + esc(n.project) + "</td>" +
+        "<td>" + ageCell + "</td>" +
+        "<td>" + esc(n.title) + "</td></tr>";
+    });
+    html += "</tbody></table></section>";
+
+    html += "<section><h2>Edges</h2>";
+    var edges = data.edges || [];
+    if (!edges.length) {
+      html += "<p class=\\"meta\\">(none)</p>";
+    } else {
+      html += "<ul class=\\"edges\\">";
+      edges.forEach(function (e) {
+        var inferred = e.source === "inferred" ? " <span class=\\"edge-inferred\\">(inferred)</span>" : "";
+        html += "<li>" + esc(e.from) + " &rarr; " + esc(e.to) + inferred + "</li>";
+      });
+      html += "</ul>";
+    }
+    html += "</section>";
+    app.innerHTML = html;
+  }
+
+  function showError(msg) {
+    var banner = document.getElementById("error-banner");
+    banner.textContent = msg;
+    banner.classList.remove("hidden");
+  }
+
+  function hideError() {
+    document.getElementById("error-banner").classList.add("hidden");
+  }
+
+  function refresh() {
+    fetch("/api/status")
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        hideError();
+        renderFleet(data);
+      })
+      .catch(function (err) {
+        showError("Unable to refresh fleet status: " + (err.message || String(err)) +
+          ". The server may have stopped or status --json failed.");
+      });
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+</body>
+</html>
+"""
+
+sys.stdout.write(doc)
+'
+}
+
+# Gather muxa/br/jobs facts and assemble the JSON payload (--json stdout).
+status_snapshot() {
   local who_json broker_json jobs_json
   who_json="$(status_who_json)"
   broker_json="$(status_broker_json)"
@@ -2345,8 +2584,165 @@ cmd_status() {
     die_usage "CP_STATUS_STALL_SEC must be a positive integer (got: ${CP_STATUS_STALL_SEC:-})"
   fi
 
+  status_assemble "$who_json" "$broker_json" "$jobs_json" "$br_open_json" "$br_closed_json" "$branches_json" "$generated_at" "$CP_HOME" "$stall_sec"
+}
+
+# Foreground localhost HTTP server. /api/status re-invokes "$PROG status --json".
+status_serve() {
+  local port="$1"
+  export CP_STATUS_PROG="$PROG"
+  export CP_STATUS_SERVE_PORT="$port"
+  status_render_html_live | python3 -c '
+import http.server
+import os
+import signal
+import socketserver
+import subprocess
+import sys
+import threading
+
+PROG = os.environ["CP_STATUS_PROG"]
+PORT = int(os.environ["CP_STATUS_SERVE_PORT"])
+HOST = "127.0.0.1"
+LIVE_HTML = sys.stdin.read()
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, _format, *_args):
+        pass
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            body = LIVE_HTML.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/api/status":
+            try:
+                proc = subprocess.run(
+                    [PROG, "status", "--json"],
+                    capture_output=True,
+                    text=True,
+                    env=os.environ,
+                )
+            except OSError as exc:
+                self.send_error(502, str(exc))
+                return
+            if proc.returncode != 0:
+                msg = (proc.stderr or proc.stdout or "status --json failed").strip()
+                self.send_error(502, msg)
+                return
+            body = proc.stdout.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_error(404)
+
+
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+
+
+def main():
+    try:
+        httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as exc:
+        print(f"[cp] error: cannot bind {HOST}:{PORT} ({exc})", file=sys.stderr)
+        sys.exit(2)
+    bound_port = httpd.server_address[1]
+    print(f"http://127.0.0.1:{bound_port}/", flush=True)
+    print("[cp] Ctrl-C to stop", file=sys.stderr)
+
+    # serve_forever must not run on the main thread: shutdown() from a signal
+    # handler deadlocks when the same thread is blocked inside serve_forever().
+    server_thread = threading.Thread(
+        target=httpd.serve_forever,
+        kwargs={"poll_interval": 0.5},
+        name="cp-status-serve",
+        daemon=False,
+    )
+
+    def shutdown(_signum, _frame):
+        httpd.shutdown()
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+    try:
+        signal.signal(signal.SIGHUP, shutdown)
+    except (AttributeError, ValueError):
+        pass
+
+    server_thread.start()
+    server_thread.join()
+    httpd.server_close()
+
+
+if __name__ == "__main__":
+    main()
+'
+}
+
+cmd_status() {
+  local json=0 html=0 serve=0 port=8765
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json=1
+        shift
+        ;;
+      --html)
+        html=1
+        shift
+        ;;
+      --serve)
+        serve=1
+        shift
+        ;;
+      --port)
+        [[ $# -ge 2 ]] || die_usage "status --port needs N"
+        port="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage_status
+        exit 2
+        ;;
+      *)
+        die_usage "unknown status arg $1"
+        ;;
+    esac
+  done
+
+  if [[ "$serve" -eq 1 && ( "$json" -eq 1 || "$html" -eq 1 ) ]]; then
+    die_usage "status: --serve is mutually exclusive with --json and --html"
+  fi
+
+  if [[ "$json" -eq 1 && "$html" -eq 1 ]]; then
+    die_usage "status: use only one of --json or --html"
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '[cp] error: python3 not on PATH (needed for status)\n' >&2
+    exit 2
+  fi
+
+  if [[ "$serve" -eq 1 ]]; then
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+      die_usage "status --port must be a non-negative integer (got: $port)"
+    fi
+    status_serve "$port"
+    return
+  fi
+
   local result
-  result="$(status_assemble "$who_json" "$broker_json" "$jobs_json" "$br_open_json" "$br_closed_json" "$branches_json" "$generated_at" "$CP_HOME" "$stall_sec")"
+  result="$(status_snapshot)"
 
   if [[ "$json" -eq 1 ]]; then
     printf '%s\n' "$result"

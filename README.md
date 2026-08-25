@@ -52,7 +52,7 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), read-only fleet snapshot (`status [--json] [--html]`) |
+| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`) |
 | `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook, artifact, gate, status) |
 | `test/fixtures/` | yes | Golden-file fixtures (`status/table.golden`; HTML snapshots are generated, not golden-filed) |
 | `reports/` | yes | Design research for this repo |
