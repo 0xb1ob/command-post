@@ -319,6 +319,77 @@ assert "revisions" not in d
 else
   fail "malformed escalate JSON includes reasons, no revisions (got $out)"
 fi
+comments="$(br --db "$DB" comments list "$ID4" --json)"
+if printf '%s\n' "$comments" | python3 -c '
+import json, sys
+comments = json.load(sys.stdin)
+gates = [c["text"] for c in comments if str(c.get("text","")).splitlines()[:1] == ["gate:v1"]]
+assert len(gates) == 1
+assert "cause: operational" in gates[0]
+'; then
+  ok "first operational gate comment records cause: operational"
+else
+  fail "first operational gate comment records cause: operational"
+fi
+
+# repeated operational → operational_persistent (second gate run, same malformed stub)
+rm -f "$TMP/runs"
+rc=0
+out="$("$CP" gate "$ID4")" || rc=$?
+if [[ "$rc" -eq 20 ]]; then
+  ok "repeated malformed escalates exit 20"
+else
+  fail "repeated malformed escalates exit 20 (got $rc out=$(printf %q "$out"))"
+fi
+if [[ -f "$TMP/runs" ]] && [[ "$(wc -l < "$TMP/runs" | tr -d ' ')" -eq 2 ]]; then
+  ok "repeated operational still retries reviewer once per gate run"
+else
+  fail "repeated operational still retries reviewer once per gate run"
+fi
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["verdict"] == "escalate"
+assert d["attempt"] == 2
+assert d["cause"] == "operational_persistent"
+assert any("prior operational" in r for r in d["reasons"])
+assert "revisions" not in d
+'; then
+  ok "repeated operational JSON is operational_persistent"
+else
+  fail "repeated operational JSON is operational_persistent (got $out)"
+fi
+comments="$(br --db "$DB" comments list "$ID4" --json)"
+if printf '%s\n' "$comments" | python3 -c '
+import json, sys
+comments = json.load(sys.stdin)
+gates = [c["text"] for c in comments if str(c.get("text","")).splitlines()[:1] == ["gate:v1"]]
+assert len(gates) == 2
+assert "cause: operational_persistent" in gates[1]
+'; then
+  ok "repeated operational gate comment records cause: operational_persistent"
+else
+  fail "repeated operational gate comment records cause: operational_persistent"
+fi
+
+# operational after revise is still first operational (not persistent)
+ID4B="$(br --db "$DB" create "gate-bad-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+"$CP" artifact add "$ID4B" "$TMP/src.md" >/dev/null
+export CP_GATE_CMD="$TMP/revise.sh"
+"$CP" gate "$ID4B" >/dev/null || true
+export CP_GATE_CMD="$TMP/malformed.sh"
+rm -f "$TMP/runs"
+out="$("$CP" gate "$ID4B")" || true
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["attempt"] == 2
+assert d["cause"] == "operational"
+'; then
+  ok "operational after revise stays operational not persistent"
+else
+  fail "operational after revise stays operational not persistent (got $out)"
+fi
 
 # bloated reviewer text is truncated so stdout JSON stays a few hundred words
 BLOATED_REASON="$(python3 -c 'print(" ".join("word%d" % i for i in range(400)))')"
@@ -373,7 +444,7 @@ if printf '%s\n' "$help" | grep -q 'does NOT close the issue or authorize implem
 else
   fail "help states pass does not close or authorize implementation"
 fi
-if printf '%s\n' "$help" | grep -q 'cause is null on pass/revise' && printf '%s\n' "$help" | grep -q 'operational'; then
+if printf '%s\n' "$help" | grep -q 'cause is null on pass/revise' && printf '%s\n' "$help" | grep -q 'operational_persistent'; then
   ok "help documents cause on stdout JSON"
 else
   fail "help documents cause on stdout JSON"

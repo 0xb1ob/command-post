@@ -59,7 +59,7 @@
 # no mail). Extracts via artifact get (never br show — that inlines
 # comment bodies), reviews against templates/gate-rubric.md, records a
 # short gate:v1 comment. Stdout JSON always includes reasons and cause
-# (null on pass/revise; policy|operational on escalate); revisions when
+# (null on pass/revise; policy|operational|operational_persistent on escalate); revisions when
 # verdict=revise. Bloated reasons/revisions are truncated (ellipsis) so
 # the JSON stays a few hundred words — never the artifact body.
 # Policy (flag=yes → escalate; one revise max) is enforced here, not in
@@ -68,7 +68,9 @@
 # command with CP_GATE_CMD (stdin → stdout). Exit 0=pass, 10=revise,
 # 20=escalate; pass does not close the issue or authorize implementation.
 # Escalate cause: policy = rubric/flags/attempt cap; operational =
-# reviewer output unparseable after one retry (re-run gate, not a blocker).
+# reviewer output unparseable after one in-run retry (re-run gate once);
+# operational_persistent = same on the immediately prior gate run (model
+# likely cannot meet the parse contract — swap --model or surface to caller).
 #
 # status: single-shot, read-only fleet snapshot ({v,generated_at,home,
 # broker,nodes[],edges[]}, a human table, or --html self-contained page).
@@ -182,8 +184,9 @@ usage_gate() {
   printf '\n' >&2
   printf 'Stdout JSON: br_id, verdict, attempt, flags, reasons, cause;\n' >&2
   printf 'revisions when verdict=revise. cause is null on pass/revise;\n' >&2
-  printf 'on escalate it is policy (rubric/flags/attempt cap) or operational\n' >&2
-  printf '(reviewer output unparseable — re-run gate, do not surface to caller).\n' >&2
+  printf 'on escalate it is policy, operational (first unparseable — re-run\n' >&2
+  printf 'gate once), or operational_persistent (prior gate was operational —\n' >&2
+  printf 'swap --model or surface to the caller; do not loop).\n' >&2
   printf 'Reasons/revisions are truncated with an ellipsis if the JSON would\n' >&2
   printf 'exceed a few hundred words. Never includes the artifact body.\n' >&2
   printf '\n' >&2
@@ -1029,7 +1032,11 @@ if not isinstance(comments, list):
     sys.exit(2)
 n = 0
 prior_revise = 0
+prior_operational = 0
+last_gate_text = None
 verdict_re = re.compile(r"(?i)^\s*verdict\s*:\s*revise\s*$")
+operational_cause_re = re.compile(r"(?i)^\s*cause\s*:\s*operational\s*$")
+unparseable_re = re.compile(r"reviewer output unparseable after one retry", re.I)
 for c in comments:
     if not isinstance(c, dict):
         continue
@@ -1040,11 +1047,19 @@ for c in comments:
     if first != "gate:v1":
         continue
     n += 1
+    last_gate_text = text
     for line in text.splitlines():
         if verdict_re.match(line):
             prior_revise = 1
             break
-sys.stdout.write("%d\t%d\n" % (n + 1, prior_revise))
+if last_gate_text:
+    for line in last_gate_text.splitlines():
+        if operational_cause_re.match(line):
+            prior_operational = 1
+            break
+    if not prior_operational and unparseable_re.search(last_gate_text):
+        prior_operational = 1
+sys.stdout.write("%d\t%d\t%d\n" % (n + 1, prior_revise, prior_operational))
 ' <<< "$raw"
 }
 
@@ -1149,7 +1164,7 @@ verdict = d.get("verdict")
 flags = d.get("flags") or {}
 reasons = [str(x) for x in (d.get("reasons") or [])]
 revisions = [str(x) for x in (d.get("revisions") or [])]
-escalate_cause = d.get("cause") if d.get("cause") == "operational" else None
+escalate_cause = d.get("cause") if d.get("cause") in ("operational", "operational_persistent") else None
 need = ("destructive_scope", "scope_growth", "blocking_unknowns")
 norm = {}
 for k in need:
@@ -1194,12 +1209,16 @@ lines = [
     "gate:v1",
     "attempt: %d" % attempt,
     "verdict: %s" % verdict,
+]
+if verdict == "escalate" and cause:
+    lines.append("cause: %s" % cause)
+lines.extend([
     "flags:",
     "destructive_scope: %s" % norm["destructive_scope"],
     "scope_growth: %s" % norm["scope_growth"],
     "blocking_unknowns: %s" % norm["blocking_unknowns"],
     "reasons:",
-]
+])
 lines.extend(bullets(reasons))
 if verdict == "revise":
     lines.append("revisions:")
@@ -1334,9 +1353,9 @@ cmd_gate() {
     cat "$tmpd/artifact.md"
   } > "$tmpd/prompt"
 
-  local state attempt prior_revise
+  local state attempt prior_revise prior_operational
   state="$(gate_prior_state "$id")" || die "cannot list comments for $id"
-  IFS=$'\t' read -r attempt prior_revise <<< "$state"
+  IFS=$'\t' read -r attempt prior_revise prior_operational <<< "$state"
   [[ -n "$attempt" ]] || die "cannot parse gate history for $id"
 
   local parsed=""
@@ -1348,7 +1367,11 @@ cmd_gate() {
       :
     fi
     if ! parsed="$(parse_gate_verdict < "$tmpd/out2")"; then
-      parsed='{"verdict":"escalate","cause":"operational","reasons":["reviewer output unparseable after one retry"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
+      if [[ "$prior_operational" == "1" ]]; then
+        parsed='{"verdict":"escalate","cause":"operational_persistent","reasons":["reviewer model cannot meet parse contract (prior operational escalate)"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
+      else
+        parsed='{"verdict":"escalate","cause":"operational","reasons":["reviewer output unparseable after one retry"],"flags":{"destructive_scope":"no","scope_growth":"no","blocking_unknowns":"no"},"revisions":[]}'
+      fi
     fi
   fi
 
