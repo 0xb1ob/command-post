@@ -435,7 +435,7 @@ on the br issue (comments). Do not keep a parallel job journal.
 ### Job history (closed issues)
 
 Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json` (optional `-l project:<name>`).
-**Verify, don't browse:** `br list` caps at 50 unless `--limit 0` — pass it when the result decides membership or existence ([why](reports/operating-knowledge.md#br-list-verification-cap)).
+**Verify, don't browse:** pass `--limit 0` when the result decides membership or existence; `--limit 50` caps at 50 ([why](reports/operating-knowledge.md#br-list-verification-cap)).
 
 ## Memory
 

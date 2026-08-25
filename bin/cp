@@ -1681,8 +1681,14 @@ try:
 except Exception:
     sys.stderr.write("[cp] error: br list --json: not JSON\n")
     sys.exit(2)
-if not isinstance(rows, list):
-    sys.stderr.write("[cp] error: br list --json: expected an array\n")
+if isinstance(rows, dict):
+    issues = rows.get("issues")
+    if not isinstance(issues, list):
+        sys.stderr.write("[cp] error: br list --json: envelope missing issues array\n")
+        sys.exit(2)
+    rows = issues
+elif not isinstance(rows, list):
+    sys.stderr.write("[cp] error: br list --json: expected an array or envelope with issues\n")
     sys.exit(2)
 out = []
 for r in rows:
@@ -1702,6 +1708,17 @@ for r in rows:
     })
 json.dump(out, sys.stdout)
 '
+}
+
+# br list with --limit 0 (verification-safe) and normalized issue rows.
+br_list_json() {
+  local -a args=(list --limit 0)
+  args+=("$@")
+  local raw
+  if ! raw="$("${BR_PREFIX[@]}" "${args[@]}")"; then
+    return 1
+  fi
+  printf '%s' "$raw" | status_normalize_br_list
 }
 
 # Best-effort git branch per distinct pane cwd (join step 3: branch == br
@@ -2217,11 +2234,10 @@ status_snapshot() {
 
   local -a BR_PREFIX=()
   status_br_prefix
-  local br_open_raw br_open_json
-  if ! br_open_raw="$("${BR_PREFIX[@]}" list --json)"; then
+  local br_open_json
+  if ! br_open_json="$(br_list_json --json)"; then
     die "br list --json failed"
   fi
-  br_open_json="$(printf '%s' "$br_open_raw" | status_normalize_br_list)"
 
   local branches_json
   branches_json="$(status_branch_map "$who_json")"
@@ -2235,16 +2251,14 @@ status_snapshot() {
 
   local br_closed_json='[]'
   if [[ ${#cand_ids[@]} -gt 0 ]]; then
-    local -a closed_args=(list -s closed --json)
+    local -a closed_args=(-s closed --json)
     local id
     for id in "${cand_ids[@]}"; do
       closed_args+=(--id "$id")
     done
-    local br_closed_raw
-    if ! br_closed_raw="$("${BR_PREFIX[@]}" "${closed_args[@]}")"; then
+    if ! br_closed_json="$(br_list_json "${closed_args[@]}")"; then
       die "br list -s closed --json failed"
     fi
-    br_closed_json="$(printf '%s' "$br_closed_raw" | status_normalize_br_list)"
   fi
 
   local generated_at="${CP_STATUS_NOW:-}"
