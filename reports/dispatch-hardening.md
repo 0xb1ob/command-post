@@ -33,7 +33,7 @@ same repo + same worktree still held (lease not returned)
   → no muxa dispatch, no new treehouse lease
 
 worktree returned, or job is independent (other repo / second worktree)
-  → treehouse get --lease from projects/<name>
+  → bin/cp lease --project NAME
   → bind the printed path; muxa dispatch --cwd "$worktree"
 ```
 
@@ -58,8 +58,8 @@ mis-pointed.
 1. `treehouse return --force <bad-worktree>`
 2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire or
    rename extra clones (`~/command-post`, …) so they are not lease cwd
-3. Re-lease from the canonical clone (`treehouse get --lease` with cwd
-   `projects/<name>`)
+3. Re-lease: `bin/cp lease --project <name>` (or `cd projects/<name>` then
+   `treehouse get --lease` when `bin/cp` is unavailable)
 4. `bin/cp check --project <name> <worktree>` on the new path
 
 `git worktree add` only when treehouse is **not installed**. A wrong-repo

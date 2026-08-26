@@ -2,6 +2,7 @@
 # Dispatch helper for command-post.
 #
 #   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
+#   bin/cp lease --project NAME
 #   bin/cp jobs add|set|done|list ...
 #   bin/cp artifact path|add|get ...
 #   bin/cp gate ID [--model M]
@@ -134,6 +135,7 @@ cmd_v_path() {
 
 usage() {
   printf 'usage: %s check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]\n' "$PROG" >&2
+  printf '       %s lease --project NAME\n' "$PROG" >&2
   printf '       %s jobs add|set|reported|done|list ...\n' "$PROG" >&2
   printf '       %s artifact path|add|get ...\n' "$PROG" >&2
   printf '       %s gate ID [--model M]\n' "$PROG" >&2
@@ -638,11 +640,47 @@ cmd_check() {
   fi
 
   require_muxa
-  if ! check_occupancy "${worktrees[@]}"; then
-    rc=1
+  if [[ "$rc" -eq 0 ]]; then
+    if ! check_occupancy "${worktrees[@]}"; then
+      rc=1
+    fi
   fi
   [[ "$rc" -eq 0 ]] || exit 1
   log "ok"
+}
+
+usage_lease() {
+  printf 'usage: %s lease --project NAME\n' "$PROG" >&2
+  printf '\n' >&2
+  printf 'Lease a worktree from the canonical clone at projects/<name>.\n' >&2
+  printf 'Runs treehouse get --lease with cwd in that clone (treehouse keys\n' >&2
+  printf 'off cwd, not a path argument). Prints the absolute worktree path\n' >&2
+  printf 'on stdout only. Follow with bin/cp check --project NAME "$worktree".\n' >&2
+}
+
+cmd_lease() {
+  local project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ $# -ge 2 ]] || die_usage "--project needs NAME"
+        project="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage_lease
+        ;;
+      *)
+        die_usage "unexpected arg $1"
+        ;;
+    esac
+  done
+  [[ -n "$project" ]] || die_usage "missing --project NAME"
+
+  local clone wt
+  clone="$(assert_canonical_clone "$project")" || exit $?
+  wt="$(treehouse_get_lease "$clone")"
+  printf '%s\n' "$wt"
 }
 
 jobs_file() {
@@ -3862,6 +3900,10 @@ main() {
       shift
       cmd_check "$@"
       ;;
+    lease)
+      shift
+      cmd_lease "$@"
+      ;;
     jobs)
       shift
       cmd_jobs "$@"
@@ -3894,7 +3936,7 @@ main() {
       usage
       ;;
     *)
-      die_usage "unknown command $1 (want: check, jobs, artifact, gate, dispatch, doctor, teardown, or status)"
+      die_usage "unknown command $1 (want: check, lease, jobs, artifact, gate, dispatch, doctor, teardown, or status)"
       ;;
   esac
 }
