@@ -313,10 +313,10 @@ LEASE_CL="$(cd "$TMP/leased-cl" && pwd -P)"
 export CP_TEST_LEASE="$LEASE_CL"
 printf 'Branch: job-cl\n' > "$CP_TEST_TAIL"
 "$CP" dispatch --project demo --br-id job-cl --task-file "$TMP/task.txt" -- \
-  claude --model x >/dev/null 2>"$TMP/err.cl" || {
+  claude --model sonnet >/dev/null 2>"$TMP/err.cl" || {
   fail "claude override dispatch (err=$(cat "$TMP/err.cl"))"
 }
-if grep -F -q -- "claude --model x" "$CP_TEST_DISPATCH_LOG"; then
+if grep -F -q -- "claude --model sonnet" "$CP_TEST_DISPATCH_LOG"; then
   ok "claude override is passed to muxa dispatch"
 else
   fail "claude override args ($(cat "$CP_TEST_DISPATCH_LOG"))"
@@ -407,7 +407,7 @@ Parent={{PARENT}} Branch={{BRANCH}} Id={{BR_ID}} Artifact={{ARTIFACT_PATH}}
 {{TASK}}
 EOF
 cat > "$CP_HOME/data/routing.tsv" <<'EOF'
-researcher	claude	--model	grok
+researcher	claude	--model	opus
 implementer	agent	--model	composer-2.5-fast
 gate-reviewer	agent	--model	composer-2.5-fast
 EOF
@@ -420,7 +420,7 @@ export CP_TEST_LEASE="$LEASE_RTR"
 printf 'Branch: job-rtr\n' > "$CP_TEST_TAIL"
 "$CP" dispatch --project demo --br-id job-rtr --template research --task-file "$TMP/task.txt" \
   >/dev/null 2>"$TMP/err.rtr" || fail "routing researcher dispatch (err=$(cat "$TMP/err.rtr"))"
-if grep -F -q -- "claude --model grok" "$CP_TEST_DISPATCH_LOG"; then
+if grep -F -q -- "claude --model opus" "$CP_TEST_DISPATCH_LOG"; then
   ok "routing.tsv researcher row used with --template research"
 else
   fail "routing researcher CMD ($(cat "$CP_TEST_DISPATCH_LOG"))"
@@ -594,9 +594,9 @@ LEASE3="$(cd "$TMP/leased3" && pwd -P)"
 export CP_TEST_LEASE="$LEASE3"
 printf 'Branch: job-name\n' > "$CP_TEST_TAIL"
 "$CP" dispatch --project demo --br-id job-name --name crisp-oak --task-file "$TMP/task.txt" -- \
-  agent --model x >/dev/null 2>"$TMP/err.name" || true
+  agent --model composer-2.5-fast >/dev/null 2>"$TMP/err.name" || true
 if grep -F -q -- "--name crisp-oak" "$CP_TEST_DISPATCH_LOG" \
-  && grep -F -q -- "agent --model x" "$CP_TEST_DISPATCH_LOG"; then
+  && grep -F -q -- "agent --model composer-2.5-fast" "$CP_TEST_DISPATCH_LOG"; then
   ok "--name and custom CMD are passed to muxa dispatch"
 else
   fail "--name/CMD args ($(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.name"))"
@@ -788,6 +788,97 @@ if grep -q 'return --force' "$TMP/th-noo.log"; then
   ok "fetch failure returns the lease"
 else
   fail "fetch failure returns the lease (log=$(cat "$TMP/th-noo.log"))"
+fi
+
+# catalog present + unknown slug in an allowed family → exit 2 before lease
+reset_logs
+make_worker_shim agent
+set_test_path
+mkdir -p "$CP_HOME/data/models"
+now="$(date -u +%s)"
+printf '# slug\tfamily\tdisplay\ncomposer-2.5-fast\tcursor\tComposer 2.5 Fast\n' \
+  > "$CP_HOME/data/models/agent.tsv"
+cat > "$CP_HOME/data/models/agent.meta" <<EOF
+fetched_at=2026-08-26T19:01:00Z
+fetched_epoch=${now}
+status=ok
+static=false
+EOF
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 2 "not in agent catalog" "catalog rejects unknown slug before lease" \
+  "$CP" dispatch --project demo --br-id job-badslug --task-file "$TMP/task.txt" -- \
+  agent --model composer-9.9
+if grep -q 'get --lease' "$CP_TEST_TH_LOG"; then
+  fail "unknown slug does not call treehouse get"
+else
+  ok "unknown slug does not call treehouse get"
+fi
+
+# no catalog → proceeds with unvalidated note
+reset_logs
+rm -rf "$CP_HOME/data/models"
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-nocat" >/dev/null
+LEASE_NOCAT="$(cd "$TMP/leased-nocat" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_NOCAT"
+printf 'Branch: job-nocat\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-nocat --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.nocat" || fail "no-catalog dispatch (err=$(cat "$TMP/err.nocat"))"
+if grep -F -q -- "slug not validated" "$TMP/err.nocat" \
+  && grep -F -q -- "agent --model composer-2.5-fast" "$CP_TEST_DISPATCH_LOG"; then
+  ok "no catalog proceeds with unvalidated note"
+else
+  fail "no catalog proceeds (err=$(cat "$TMP/err.nocat") log=$(cat "$CP_TEST_DISPATCH_LOG"))"
+fi
+
+# CP_MODELS_VALIDATE=off with catalog still leases
+reset_logs
+mkdir -p "$CP_HOME/data/models"
+printf '# slug\tfamily\tdisplay\ncomposer-2.5-fast\tcursor\tComposer 2.5 Fast\n' \
+  > "$CP_HOME/data/models/agent.tsv"
+cat > "$CP_HOME/data/models/agent.meta" <<EOF
+fetched_at=2026-08-26T19:01:00Z
+fetched_epoch=${now}
+status=ok
+static=false
+EOF
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-valoff" >/dev/null
+LEASE_VO="$(cd "$TMP/leased-valoff" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_VO"
+printf 'Branch: job-valoff\n' > "$CP_TEST_TAIL"
+CP_MODELS_VALIDATE=off "$CP" dispatch --project demo --br-id job-valoff --task-file "$TMP/task.txt" -- \
+  agent --model composer-9.9 >/dev/null 2>"$TMP/err.valoff" \
+  || fail "VALIDATE=off dispatch (err=$(cat "$TMP/err.valoff"))"
+if grep -F -q -- "agent --model composer-9.9" "$CP_TEST_DISPATCH_LOG"; then
+  ok "CP_MODELS_VALIDATE=off proceeds with unknown slug"
+else
+  fail "VALIDATE=off (log=$(cat "$CP_TEST_DISPATCH_LOG"))"
+fi
+rm -rf "$CP_HOME/data/models"
+
+# --scope M picks rule 7 (no routing pin)
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-scope" >/dev/null
+LEASE_SC="$(cd "$TMP/leased-scope" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_SC"
+printf 'Branch: job-scope\n' > "$CP_TEST_TAIL"
+"$CP" dispatch --project demo --br-id job-scope --scope M --risk low --task-file "$TMP/task.txt" \
+  >/dev/null 2>"$TMP/err.scope" || fail "scope M dispatch (err=$(cat "$TMP/err.scope"))"
+if grep -F -q -- "agent --model cursor-grok-4.6-high" "$CP_TEST_DISPATCH_LOG" \
+  && grep -F -q -- "rule=7" "$TMP/err.scope"; then
+  ok "dispatch --scope M uses rule 7 cursor-grok-4.6-high"
+else
+  fail "scope M (log=$(cat "$CP_TEST_DISPATCH_LOG") err=$(cat "$TMP/err.scope"))"
+fi
+
+# openai family refused even as -- CMD override
+reset_logs
+expect_rc_msg 2 "family openai not in allow" "override gpt family refused by allowlist" \
+  "$CP" dispatch --project demo --br-id job-gpt --task-file "$TMP/task.txt" -- \
+  agent --model gpt-5.5-high
+if grep -q 'get --lease' "$CP_TEST_TH_LOG"; then
+  fail "disallowed family does not call treehouse get"
+else
+  ok "disallowed family does not call treehouse get"
 fi
 
 if [[ "$failed" -ne 0 ]]; then

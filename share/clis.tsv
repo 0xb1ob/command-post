@@ -1,6 +1,8 @@
 # argv0	muxa_kind	receipt	default_model
 # Supported worker CLIs. doctor, dispatch, and gate refuse argv0 not listed here.
 # default_model: composed at derivation time (--model FLAG); empty = CLI default, no flag.
+# Rubric overwrites --model unless data/routing.tsv pins the role; default_model is the
+# rule-8 fallback when compose_cli_argv runs before the rubric.
 # Derivation preference when several are installed (after shipped-default check): agent, cursor-agent, claude.
 agent	cursor	branch-token	composer-2.5-fast
 cursor-agent	cursor	branch-token	composer-2.5-fast

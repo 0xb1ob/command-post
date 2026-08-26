@@ -1,0 +1,8 @@
+# family	slug_regex	cli_kinds
+# First-match top-down. Cursor's own models are composer-*; cursor-grok-* is grok.
+cursor	^composer-	cursor
+grok	^cursor-grok-	cursor
+anthropic	^claude-|^(fable|opus|sonnet)$	cursor,claude
+openai	^gpt-	cursor
+gemini	^gemini-	cursor
+other	.*	cursor

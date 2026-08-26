@@ -133,6 +133,8 @@ lacks "The operator currently forbids the claude CLI for workers" "claude ban se
 has "data/routing.tsv" "playbook points at data/routing.tsv for routing"
 has "bin/cp doctor" "playbook mentions bin/cp doctor"
 has "missing CLI exits 2" "playbook documents pre-lease CLI probe"
+has "reports/model-routing.md" "per-job model rubric lives in model-routing.md"
+has "--scope" "dispatch --scope is documented"
 
 # Parallel PRs and merge discipline (command-post#78)
 has "Parallel PRs, one base" "parallel PRs from one base section exists"

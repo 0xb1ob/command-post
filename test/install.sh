@@ -89,6 +89,8 @@ has "$INSTALL" '--version "$BR_VERSION_PIN"' \
   "install.sh curl passes pinned version via BR_VERSION_PIN"
 has "$INSTALL" 'list --json' \
   "install.sh gates on br list --json against the home db, not --slug"
+has "$INSTALL" 'data/models.conf' "install.sh scaffolds data/models.conf"
+has "$INSTALL" 'models refresh' "install.sh best-effort models refresh"
 has "$INSTALL" 'migrate-schema' \
   "install.sh names doctor migrate-schema when list --json fails"
 lacks "$INSTALL" 'br_create_supports_slug' \
