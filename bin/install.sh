@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
-MUXA_VERSION_PIN="1.0.17"
+MUXA_VERSION_PIN="1.0.19"
 CP_VERSION_PIN="0.1.0"
 BR_VERSION_PIN="v0.5.2"
 BR_VERSION="${BR_VERSION_PIN#v}"
