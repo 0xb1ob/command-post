@@ -564,6 +564,33 @@ dispatch_occupancy_warning_contradiction() {
   return 1
 }
 
+# muxa dispatch may succeed before we detect an occupancy contradiction (#77).
+# Kill the pane it created before returning the lease — never pool a worktree
+# that still has a live pane on it.
+dispatch_kill_orphan_pane() {
+  local dispatch_stdout="$1"
+  local parsed worker
+
+  if ! parsed="$(printf '%s\n' "$dispatch_stdout" | parse_dispatch_json 2>/dev/null)"; then
+    printf '[cp] error: occupancy contradiction but muxa dispatch JSON is unusable — lease kept\n' >&2
+    DISPATCH_KEEP_LEASE=1
+    return 1
+  fi
+  IFS=$'\t' read -r worker _ _ <<< "$parsed"
+  if [[ -z "$worker" ]]; then
+    printf '[cp] error: occupancy contradiction but muxa dispatch JSON has no worker name — lease kept\n' >&2
+    DISPATCH_KEEP_LEASE=1
+    return 1
+  fi
+  require_muxa_bin
+  if ! muxa kill "$worker"; then
+    printf '[cp] error: occupancy contradiction — muxa kill %s failed; lease kept on worktree\n' "$worker" >&2
+    DISPATCH_KEEP_LEASE=1
+    return 1
+  fi
+  return 0
+}
+
 cmd_check() {
   local project=""
   local -a worktrees=()
@@ -3496,7 +3523,11 @@ cmd_dispatch() {
     die "muxa dispatch failed — returned the lease; do not retry from this command (never-ready is orchestrator mail)"
   fi
   if ! dispatch_occupancy_warning_contradiction "$dispatch_err"; then
+    dispatch_kill_orphan_pane "$out" || true
     rm -f "$brief_out" "$dispatch_err"
+    if [[ "${DISPATCH_KEEP_LEASE:-0}" -eq 1 ]]; then
+      die "occupancy contradiction — lease kept; fix muxa kill or inspect with muxa tail before retry"
+    fi
     die "occupancy contradiction — returned the lease; inspect with muxa tail before retry"
   fi
   rm -f "$dispatch_err"
