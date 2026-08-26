@@ -70,7 +70,7 @@ setup_path_with() {
 cat > "$TMP/shim/muxa" <<'EOF'
 #!/bin/sh
 if [ "$1" = "version" ]; then
-  printf '1.0.17 (test)\n'
+  printf '1.0.19 (test)\n'
   exit 0
 fi
 exit 0
@@ -315,7 +315,7 @@ if printf '%s\n' "$out" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 assert d["host"]["muxa"]["version_ok"] is False
-assert any(m["what"] == "muxa 1.0.17" for m in d["missing"])
+assert any(m["what"] == "muxa 1.0.19" for m in d["missing"])
 '; then
   ok "doctor JSON reports muxa version mismatch"
 else

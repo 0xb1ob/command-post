@@ -73,7 +73,7 @@ has "$INSTALL" 'CP_INSTALL_URL' \
   "install.sh supports CP_INSTALL_URL override"
 lacks "$INSTALL" 'python3 is for bin/cp' \
   "install.sh no longer mentions python3 for bin/cp"
-has "$INSTALL" 'MUXA_VERSION_PIN="1.0.17"' \
+has "$INSTALL" 'MUXA_VERSION_PIN="1.0.19"' \
   "install.sh declares muxa pin"
 has "$INSTALL" 'MUXA_BROKER_VERSION="$MUXA_VERSION_PIN"' \
   "install.sh passes pinned muxa version to upstream installer"
