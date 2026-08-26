@@ -68,7 +68,15 @@ setup_path_with() {
 
 # muxa/br/treehouse shims for doctor host section when real ones absent from trimmed path
 make_shim muxa
-make_shim br
+cat > "$TMP/shim/br" <<'EOF'
+#!/bin/sh
+if [ "$1" = "create" ] && [ "$2" = "--help" ]; then
+  printf '      --slug <SLUG>\n'
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "$TMP/shim/br"
 make_shim treehouse
 export MUXA_WHO_CMD="muxa who --json"
 setup_path_no_workers

@@ -112,13 +112,21 @@ ensure_muxa_hooks() {
   done
 }
 
+br_create_supports_slug() {
+  command -v br >/dev/null 2>&1 \
+    && br create --help 2>/dev/null | grep -q -- '--slug <SLUG>'
+}
+
 install_br() {
-  if command -v br >/dev/null 2>&1; then
+  if command -v br >/dev/null 2>&1 && br_create_supports_slug; then
     log "br: already installed ($(br --version))"
     return 0
   fi
-
-  log "br: installing from beads_rust"
+  if command -v br >/dev/null 2>&1; then
+    log "br: upgrading ($(br --version) lacks --slug; AGENTS.md intake requires it)"
+  else
+    log "br: installing from beads_rust"
+  fi
   curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet
 }
 

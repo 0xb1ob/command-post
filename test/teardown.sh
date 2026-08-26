@@ -372,6 +372,72 @@ else
   fail "unmirrored artifact teardown preserves companion files"
 fi
 
+# research: never-ready branch, HEAD on main — teardown via --research
+WT_RESEARCH="$TMP/wt-research"
+make_never_ready_wt "$WT_RESEARCH" feat-research
+git -C "$WT_RESEARCH" switch -q main
+WT_RESEARCH="$(cd "$WT_RESEARCH" && pwd -P)"
+"$CP" jobs add job-research worker=research-fox worktree="$WT_RESEARCH" branch=feat-research >/dev/null
+printf '[]\n' > "$CP_TEST_WHO"
+: > "$CP_TEST_TH_LOG"
+: > "$CP_TEST_KILL_LOG"
+if "$CP" teardown --research job-research >/dev/null 2>"$TMP/err.research"; then
+  ok "research teardown (--research, HEAD on main) exits 0"
+else
+  fail "research teardown (--research, HEAD on main) exits 0 (err=$(cat "$TMP/err.research"))"
+fi
+if grep -q "return --force $WT_RESEARCH" "$CP_TEST_TH_LOG"; then
+  ok "research teardown returns the lease"
+else
+  fail "research teardown returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
+fi
+
+# research via br kind:research label stub
+cat > "$TMP/br-show-stub" <<'EOF'
+#!/usr/bin/env bash
+id="${@: -1}"
+case "$id" in
+  job-research-label)
+    printf '[{"labels":["kind:research","project:test"]}]\n'
+    exit 0
+    ;;
+esac
+exit 1
+EOF
+chmod +x "$TMP/br-show-stub"
+WT_RESEARCH_LABEL="$TMP/wt-research-label"
+make_never_ready_wt "$WT_RESEARCH_LABEL" feat-research-label
+WT_RESEARCH_LABEL="$(cd "$WT_RESEARCH_LABEL" && pwd -P)"
+"$CP" jobs add job-research-label worker=research-owl worktree="$WT_RESEARCH_LABEL" branch=feat-research-label >/dev/null
+printf '[]\n' > "$CP_TEST_WHO"
+: > "$CP_TEST_TH_LOG"
+if BR_SHOW_CMD="$TMP/br-show-stub" "$CP" teardown job-research-label >/dev/null 2>"$TMP/err.research-label"; then
+  ok "research teardown (kind:research label) exits 0"
+else
+  fail "research teardown (kind:research label) exits 0 (err=$(cat "$TMP/err.research-label"))"
+fi
+
+# research with unpushed commit on job branch still fails
+WT_RESEARCH_BAD="$TMP/wt-research-bad"
+make_never_ready_wt "$WT_RESEARCH_BAD" feat-research-bad
+git -C "$WT_RESEARCH_BAD" -c user.email=t@t -c user.name=t commit --allow-empty -q -m extra
+WT_RESEARCH_BAD="$(cd "$WT_RESEARCH_BAD" && pwd -P)"
+"$CP" jobs add job-research-bad worker=research-bad worktree="$WT_RESEARCH_BAD" branch=feat-research-bad >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed commit(s)" "research with local commits refuses teardown" \
+  "$CP" teardown --research job-research-bad
+
+# ship unpushed unchanged (explicit regression)
+WT_SHIP="$TMP/wt-ship-unpush"
+mkdir -p "$WT_SHIP"
+git -C "$WT_SHIP" init -q -b feat-ship-unpush
+git -C "$WT_SHIP" -c user.email=t@t -c user.name=t commit --allow-empty -q -m init
+WT_SHIP="$(cd "$WT_SHIP" && pwd -P)"
+"$CP" jobs add job-ship-unpush worker=ship-fox worktree="$WT_SHIP" branch=feat-ship-unpush >/dev/null
+: > "$CP_TEST_TH_LOG"
+expect_rc_msg 1 "unpushed $WT_SHIP" "ship unpushed branch still refuses teardown" \
+  "$CP" teardown job-ship-unpush
+
 # help
 expect_rc_msg 2 "Does not close the br issue" "teardown help says it does not close br" \
   "$CP" teardown --help
