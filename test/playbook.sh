@@ -154,11 +154,22 @@ has "Fresh-home test" "fresh-home test routes knowledge to contract"
 has "operating-knowledge.md" "operating knowledge report is linked from contract"
 has "residue only" "learnings is residue-only in memory section"
 
+# Slack steering plane (command-post#84): the contract, not the CLI, is checked
+# here. The mechanism lives in test/threads.sh.
+has "a thread is not an operator-facing surface" "STATUS BLOCK is scoped to the terminal audience"
+has "The parent never writes to Slack" "parent-never-posts rule is in the contract"
+has '`br_id` is the routing key' "br_id is named as the thread routing key"
+has "post nowhere" "missing or unbound origin posts nowhere"
+has "outbound only; inbound Slack is never stored" "outbound-only log rule is stated"
+has "id and label redacted" "cross-origin br dep redaction is in the contract"
+has "docs/slack-install.md" "install doc is linked from the contract"
+
+# Budget raised from 480 for the Slack thread contract (command-post#84).
 lines="$(wc -l < "$AGENTS" | tr -d ' ')"
-if [[ "$lines" -le 480 ]]; then
-  ok "AGENTS.md is ≤480 lines (target ~400; got $lines)"
+if [[ "$lines" -le 505 ]]; then
+  ok "AGENTS.md is ≤505 lines (target ~400; got $lines)"
 else
-  fail "AGENTS.md is ≤480 lines (got $lines; target ~400)"
+  fail "AGENTS.md is ≤505 lines (got $lines; target ~400)"
 fi
 
 # Zero tmux pane commands in the playbook, bin/cp, and this repo's tests.

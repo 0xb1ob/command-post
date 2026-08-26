@@ -354,7 +354,13 @@ func serveSignals() chan os.Signal {
 
 func CmdStatus(e *Env, args []string) error {
 	jsonOut, htmlOut, serve := false, false, false
-	port := 8765
+	if v := os.Getenv("CP_STATUS_PORT"); v != "" {
+		p, err := strconvParseInt(v)
+		if err != nil || p < 0 || p > 65535 {
+			return usageError("CP_STATUS_PORT must be a port number (got: %s)", v)
+		}
+	}
+	port := effectiveStatusPort(e.Home)
 	paneAlias, originFilter := "", ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {

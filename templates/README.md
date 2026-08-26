@@ -14,6 +14,8 @@ Consumed by `bin/cp dispatch --template NAME`. That command substitutes the toke
 
 `{{ARTIFACT_PATH}}` is outside the worktree so research porcelain stays clean.
 
+`br_id` is also the routing key for Slack thread events: `state/jobs.tsv` maps it to an `origin`, `state/threads.tsv` maps that origin to one thread, and `bin/cp relay` renders the event from `thread-events.tsv`. The envelope below is unchanged — the relay reads the ledger, not mail. A job whose row carries no origin is routable nowhere ([contract](../AGENTS.md#slack-threads-origins)).
+
 ## Envelope spec
 
 Research worker `muxa send` to the parent is envelope only. Findings body never goes into mail.

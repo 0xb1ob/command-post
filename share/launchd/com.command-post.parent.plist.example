@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example only. This repo never runs launchctl load on your machine: loading it
+  is your call, and an always-on agent session holding your gh credentials is a
+  standing capability.
+
+  Copy to ~/Library/LaunchAgents/com.command-post.parent.plist, replace
+  /Users/YOU/command-post with your CP_HOME, then:
+
+    launchctl load ~/Library/LaunchAgents/com.command-post.parent.plist
+
+  The tmux invocation lives here, in your login item, not in command-post code
+  (AGENTS.md: command-post may never call tmux directly). The script it starts
+  refuses to run outside a pane, so this plist is what makes the pane.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.command-post.parent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/tmux</string>
+    <string>new-session</string>
+    <string>-d</string>
+    <string>-s</string>
+    <string>command-post</string>
+    <string>-c</string>
+    <string>/Users/YOU/command-post</string>
+    <string>/Users/YOU/command-post/scripts/cp-parent-start.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CP_HOME</key>
+    <string>/Users/YOU/command-post</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- No KeepAlive: a parent that keeps respawning after a crash would restart
+       mid-job with a fresh context. Restart it yourself and read the ledger. -->
+  <key>StandardOutPath</key>
+  <string>/tmp/command-post-parent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/command-post-parent.log</string>
+</dict>
+</plist>

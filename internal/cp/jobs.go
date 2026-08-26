@@ -154,6 +154,12 @@ func parseRuntimeKV(args []string) (runtimeKV, error) {
 			if err := requireNoCTL(key, val); err != nil {
 				return kv, err
 			}
+			// The origin becomes a filename (state/threads/<origin>.out.log)
+			// and a routing key, so it is held to the br-id shape here rather
+			// than sanitised at every read.
+			if key == "origin" && !jobIDPattern.MatchString(val) {
+				return kv, failError("invalid origin: %s (no whitespace or path separators)", val)
+			}
 		case "kind", "delivery", "status", "pr", "note":
 			return kv, failError("refusing %s= — kind, delivery, status, PR URL, and note live on the br issue", key)
 		default:

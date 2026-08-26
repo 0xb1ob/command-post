@@ -8,6 +8,69 @@ import (
 	"strings"
 )
 
+// foreignParent is another CP_HOME's root pane on the same muxa server. Two
+// homes are allowed (an organisational boundary, not a confidentiality one), so
+// this is advisory: it exists because interleaved fleets read as one fleet.
+type foreignParent struct {
+	Alias string `json:"alias"`
+	CWD   string `json:"cwd"`
+}
+
+func doctorForeignParents(e *Env) []foreignParent {
+	raw, err := muxaWhoJSON(e)
+	if err != nil {
+		return nil
+	}
+	var who []whoRow
+	if err := json.Unmarshal([]byte(raw), &who); err != nil {
+		return nil
+	}
+	homeAbs := e.Home
+	if resolved, err := filepath.EvalSymlinks(homeAbs); err == nil {
+		homeAbs = resolved
+	}
+	var out []foreignParent
+	for _, p := range who {
+		if p.Parent != nil || p.CWD == "" {
+			continue
+		}
+		cwd := p.CWD
+		if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = resolved
+		}
+		if cwd == homeAbs || strings.HasPrefix(cwd, homeAbs+string(filepath.Separator)) {
+			continue
+		}
+		out = append(out, foreignParent{Alias: p.Name, CWD: p.CWD})
+	}
+	return out
+}
+
+// doctorSlack reports relay readiness. Missing tokens are advisory: this repo
+// ships without an installed Slack app, and doctor must stay green without one.
+func doctorSlack(e *Env) map[string]any {
+	cfg, cfgErr := loadSlackConfig(e)
+	rows, _ := readThreadRows(e)
+	state, detail := "not configured", ""
+	switch {
+	case cfgErr != nil:
+		state, detail = "refused", cfgErr.Error()
+	case cfg != nil:
+		state = "configured"
+		if cfg.AppToken == "" {
+			detail = "SLACK_APP_TOKEN absent (inbound Socket Mode needs it)"
+		}
+	}
+	out := map[string]any{
+		"state": state, "tokens_file": e.SlackTokensFile(),
+		"threads": len(rows), "advisory": true,
+	}
+	if detail != "" {
+		out["detail"] = detail
+	}
+	return out
+}
+
 func CmdDoctor(e *Env, args []string) error {
 	loadJobModelEnv()
 	jsonOut := false
@@ -88,6 +151,24 @@ func CmdDoctor(e *Env, args []string) error {
 	printDoctorModels(e, clis)
 	if len(forbid) > 0 {
 		fmt.Printf("\nForbid: %s\n", strings.Join(forbid, " "))
+	}
+	slack := doctorSlack(e)
+	fmt.Println("\nSlack relay (advisory — no installed app is required):")
+	fmt.Printf("  tokens: %s (%s)\n", slack["state"], slack["tokens_file"])
+	if d, ok := slack["detail"].(string); ok {
+		fmt.Printf("  note: %s\n", d)
+	}
+	fmt.Printf("  threads bound: %d\n", slack["threads"])
+	fmt.Printf("  inbound: not implemented (see docs/slack-install.md)\n")
+	fmt.Println("\nThis home:")
+	fmt.Printf("  status --serve default port: %d (derived from CP_HOME)\n", effectiveStatusPort(e.Home))
+	others := doctorForeignParents(e)
+	if len(others) == 0 {
+		fmt.Println("  other roots on this muxa server: none")
+	} else {
+		for _, o := range others {
+			fmt.Printf("  other root on this muxa server: %s (%s) — advisory, two homes are allowed\n", o.Alias, o.CWD)
+		}
 	}
 	if hostMissing != 0 {
 		fmt.Fprintln(os.Stderr, "\n[cp] error: one or more host tools are missing — run bin/install.sh")
@@ -209,11 +290,17 @@ func doctorJSON(e *Env, hostTools []string, brSlugOK, brVersionOK, muxaVersionOK
 			})
 		}
 	}
+	others := doctorForeignParents(e)
+	if others == nil {
+		others = []foreignParent{}
+	}
 	out := map[string]any{
 		"home": e.Home, "host": host, "clis": clis,
 		"roles": roles, "forbid": forbid, "missing": missing,
 		"models":     doctorModelsJSON(e),
 		"cp_version": Version, "cp_version_ok": cpVersionMatches(),
+		"slack": doctorSlack(e), "other_parents": others,
+		"status_port": effectiveStatusPort(e.Home),
 	}
 	b, _ := json.Marshal(out)
 	exitCode := 0

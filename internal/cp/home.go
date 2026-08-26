@@ -21,10 +21,11 @@ var (
 
 // Env holds command-post home and repo root (from the cp binary location).
 type Env struct {
-	Root     string // tracked repo root (parent of bin/)
-	Home     string // CP_HOME
-	Prog     string // path to this binary
-	JobsFile string
+	Root        string // tracked repo root (parent of bin/)
+	Home        string // CP_HOME
+	Prog        string // path to this binary
+	JobsFile    string
+	ThreadsFile string
 }
 
 func NewEnv() (*Env, error) {
@@ -50,7 +51,34 @@ func NewEnv() (*Env, error) {
 	if jf == "" {
 		jf = filepath.Join(home, "state", "jobs.tsv")
 	}
-	return &Env{Root: root, Home: home, Prog: prog, JobsFile: jf}, nil
+	tf := os.Getenv("CP_THREADS_FILE")
+	if tf == "" {
+		tf = filepath.Join(home, "state", "threads.tsv")
+	}
+	return &Env{Root: root, Home: home, Prog: prog, JobsFile: jf, ThreadsFile: tf}, nil
+}
+
+// effectiveStatusPort is what --serve would bind with no --port: the
+// home-derived default unless CP_STATUS_PORT overrides it.
+func effectiveStatusPort(home string) int {
+	if v := os.Getenv("CP_STATUS_PORT"); v != "" {
+		if p, err := strconvParseInt(v); err == nil && p >= 0 && p <= 65535 {
+			return p
+		}
+	}
+	return statusPortDefault(home)
+}
+
+// statusPortDefault derives the dashboard port from the home path so two
+// command-post homes on one machine do not silently collide on a shared
+// default. Deterministic per home; --port still wins.
+func statusPortDefault(home string) int {
+	var h uint32 = 2166136261
+	for i := 0; i < len(home); i++ {
+		h ^= uint32(home[i])
+		h *= 16777619
+	}
+	return 8765 + int(h%1000)
 }
 
 func (e *Env) ClisTSV() string     { return filepath.Join(e.Root, "share", "clis.tsv") }
