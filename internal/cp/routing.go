@@ -212,32 +212,47 @@ func resolveRoleArgv(e *Env, role string) roleResolution {
 	}
 
 	if lookPath(shipped[0]) != "" && !cliIsForbidden(forbid, shipped[0]) {
-		return roleResolution{
+		return finishRoleArgv(e, role, roleResolution{
 			Argv: shipped, Argv0: shipped[0], Source: "shipped",
 			Reason: fmt.Sprintf("shipped default CLI %s is installed", shipped[0]),
-		}
+		})
 	}
 
 	candidates := listDerivedCandidates(e)
 	if len(candidates) == 1 {
 		argv = composeCLIArgv(e, candidates[0])
-		return roleResolution{
+		return finishRoleArgv(e, role, roleResolution{
 			Argv: argv, Argv0: candidates[0], Source: "derived",
 			Reason: fmt.Sprintf("only installed worker CLI: %s", candidates[0]),
-		}
+		})
 	}
 	if len(candidates) > 1 {
 		picked := pickDerivedCLI(candidates)
 		argv = composeCLIArgv(e, picked)
-		return roleResolution{
+		return finishRoleArgv(e, role, roleResolution{
 			Argv: argv, Argv0: picked, Source: "derived",
 			Reason: fmt.Sprintf("preference order among installed CLIs (picked %s)", picked),
-		}
+		})
 	}
-	return roleResolution{
+	return finishRoleArgv(e, role, roleResolution{
 		Argv: shipped, Argv0: shipped[0], Source: "derived",
 		Reason: "no worker CLI installed",
+	})
+}
+
+func finishRoleArgv(e *Env, role string, r roleResolution) roleResolution {
+	if r.Source == "routing" || len(r.Argv) == 0 {
+		return r
 	}
+	argv, err := applyRubric(e, role, r.Argv)
+	if err != nil {
+		handleErr(err)
+	}
+	r.Argv = argv
+	if len(argv) > 0 {
+		r.Argv0 = argv[0]
+	}
+	return r
 }
 
 func validateWorkerArgv0(e *Env, argv0, role, source string) error {

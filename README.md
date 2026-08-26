@@ -52,8 +52,9 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), CLI discovery (`doctor`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`) |
+| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), CLI discovery (`doctor`), model catalog (`models`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`) |
 | `share/clis.tsv` | yes | Supported worker CLI registry (argv0 → muxa kind → receipt strategy) |
+| `share/families.tsv` | yes | Model-family classifiers (slug regex → cursor/grok/anthropic/…) |
 | `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook, artifact, gate, status) |
 | `test/fixtures/` | yes | Golden-file fixtures (`status/table.golden`; HTML snapshots are generated, not golden-filed) |
 | `reports/` | yes | Design research for this repo |
@@ -61,7 +62,7 @@ worker.
 | `scripts/muxa-hook.sh` | yes | Project hook script for root self-registration |
 | `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
 | `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
-| `data/` | **no** | `data/projects.md`, `data/routing.tsv`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
+| `data/` | **no** | `data/projects.md`, `data/routing.tsv`, `data/models.conf`, `data/models/` (per-CLI catalog cache), `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
 | `state/` | **no** | Runtime jobs map (`state/jobs.tsv`: `#job`, `worker`, `worktree`, `branch`, optional `dispatched_at`, `reported_at`, `origin` stamped at dispatch); research artifacts (`state/artifacts/`) |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |

@@ -88,6 +88,7 @@ func substituteBrief(src, dest, taskFile, parent, branch, brID, artifact string)
 }
 
 func CmdDispatch(e *Env, args []string) error {
+	loadJobModelEnv()
 	project, brID, alias, template, taskFile := "", "", "", "", ""
 	var agentCmd []string
 	for i := 0; i < len(args); i++ {
@@ -122,6 +123,26 @@ func CmdDispatch(e *Env, args []string) error {
 			}
 			taskFile = args[i+1]
 			i++
+		case "--scope":
+			if i+1 >= len(args) {
+				return usageError("--scope needs S, M, or L")
+			}
+			s := strings.ToUpper(args[i+1])
+			if s != "S" && s != "M" && s != "L" {
+				return usageError("--scope wants S, M, or L")
+			}
+			jobScope = s
+			i++
+		case "--risk":
+			if i+1 >= len(args) {
+				return usageError("--risk needs low or high")
+			}
+			r := strings.ToLower(args[i+1])
+			if r != "low" && r != "high" {
+				return usageError("--risk wants low or high")
+			}
+			jobRisk = r
+			i++
 		case "-h", "--help":
 			printDispatchUsage()
 			os.Exit(2)
@@ -147,15 +168,17 @@ func CmdDispatch(e *Env, args []string) error {
 		}
 	}
 	role := dispatchRoleFromTemplate(template)
+	if k, err := brIssueLabelValue(e, brID, "kind:"); err == nil && k != "" {
+		jobKind = k
+	}
 	source := "override"
+	reason := "explicit -- CMD override"
 	var route roleResolution
 	if len(agentCmd) == 0 {
 		route = resolveRoleArgv(e, role)
 		agentCmd = route.Argv
 		source = route.Source
-		announceRoutingResolution(role, source, route.Reason, agentCmd)
-	} else {
-		announceRoutingResolution(role, "override", "explicit -- CMD override", agentCmd)
+		reason = route.Reason
 	}
 	clone, err := assertCanonicalClone(e, project)
 	if err != nil {
@@ -167,6 +190,21 @@ func CmdDispatch(e *Env, args []string) error {
 	if err := requireWorkerCmd(e, agentCmd[0], role, source); err != nil {
 		return err
 	}
+	modelsEnsureFresh(e, agentCmd[0])
+	if source != "override" && source != "routing" {
+		var err error
+		agentCmd, err = applyRubric(e, role, agentCmd)
+		if err != nil {
+			return err
+		}
+	}
+	if err := policyCheck(e, agentCmd[0], argvModel(agentCmd)); err != nil {
+		return err
+	}
+	if err := validateCatalog(e, agentCmd[0], argvModel(agentCmd)); err != nil {
+		return err
+	}
+	announceRouting(e, role, source, reason, agentCmd)
 	wt, err := treehouseGetLease(clone)
 	if err != nil {
 		return err

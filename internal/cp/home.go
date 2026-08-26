@@ -12,18 +12,18 @@ var (
 	Version = "dev"
 	Commit  = "none"
 
-	defaultGateModel       = "composer-2.5-fast"
-	defaultStatusStallSec  = 600
-	jobIDPattern           = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	projectNamePattern     = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	templateNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	defaultGateModel      = "composer-2.5-fast"
+	defaultStatusStallSec = 600
+	jobIDPattern          = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	projectNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	templateNamePattern   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
 // Env holds command-post home and repo root (from the cp binary location).
 type Env struct {
-	Root   string // tracked repo root (parent of bin/)
-	Home   string // CP_HOME
-	Prog   string // path to this binary
+	Root     string // tracked repo root (parent of bin/)
+	Home     string // CP_HOME
+	Prog     string // path to this binary
 	JobsFile string
 }
 
@@ -53,12 +53,21 @@ func NewEnv() (*Env, error) {
 	return &Env{Root: root, Home: home, Prog: prog, JobsFile: jf}, nil
 }
 
-func (e *Env) ClisTSV() string  { return filepath.Join(e.Root, "share", "clis.tsv") }
-func (e *Env) RoutingTSV() string { return filepath.Join(e.Home, "data", "routing.tsv") }
-func (e *Env) TemplatesDir() string { return filepath.Join(e.Home, "templates") }
-func (e *Env) GateRubric() string { return filepath.Join(e.Root, "templates", "gate-rubric.md") }
+func (e *Env) ClisTSV() string     { return filepath.Join(e.Root, "share", "clis.tsv") }
+func (e *Env) FamiliesTSV() string { return filepath.Join(e.Root, "share", "families.tsv") }
+func (e *Env) RoutingTSV() string  { return filepath.Join(e.Home, "data", "routing.tsv") }
+func (e *Env) ModelsDir() string   { return filepath.Join(e.Home, "data", "models") }
+func (e *Env) ModelsConf() string  { return filepath.Join(e.Home, "data", "models.conf") }
+func (e *Env) modelsTSV(argv0 string) string {
+	return filepath.Join(e.ModelsDir(), argv0+".tsv")
+}
+func (e *Env) modelsMeta(argv0 string) string {
+	return filepath.Join(e.ModelsDir(), argv0+".meta")
+}
+func (e *Env) TemplatesDir() string    { return filepath.Join(e.Home, "templates") }
+func (e *Env) GateRubric() string      { return filepath.Join(e.Root, "templates", "gate-rubric.md") }
 func (e *Env) StatusAssetsDir() string { return filepath.Join(e.Root, "lib", "status") }
-func (e *Env) InstallSh() string { return filepath.Join(e.Root, "bin", "install.sh") }
+func (e *Env) InstallSh() string       { return filepath.Join(e.Root, "bin", "install.sh") }
 
 func validateJobID(id string) error {
 	if !jobIDPattern.MatchString(id) {

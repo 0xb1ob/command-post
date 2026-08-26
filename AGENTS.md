@@ -93,6 +93,7 @@ Artifact store, gate, and playbook are command-post — see [two tests](#two-tes
 | job ledger (br) | command-post |
 | worker ⟷ worktree ⟷ branch map | command-post |
 | promote-not-spawn occupancy policy | command-post |
+| model catalog, allowlist, per-job model selection | command-post |
 | PR contracts, teardown, memory | command-post |
 
 ## Parent job
@@ -219,7 +220,7 @@ brief; jobs here always have a brief, so the path is `muxa dispatch`.
 
 ### Model routing
 
-Resolution order: explicit `-- CMD` override; then `data/routing.tsv` row; then **derived** from installed CLIs in `share/clis.tsv` (minus `forbid` rows). Error only when zero supported CLIs are installed (or all forbidden) — message names what to install. One installed CLI → all roles, no config. Shipped-default CLI installed → role defaults unchanged. Several installed → documented preference (`agent`, `cursor-agent`, `claude`). Model flags come from each CLI's `default_model` in `share/clis.tsv` at derivation time, not from the role. Dispatch prints resolved argv and `source=` (`override`|`routing`|`shipped`|`derived`) on stderr before lease. `bin/cp doctor` shows the same with `source=derived` when applicable. Per-job override: `bin/cp dispatch ... -- CMD...`. `CP_GATE_CMD` still wins for gate. Dispatch probes argv[0] before lease — missing CLI exits 2 with no orphan branch.
+Resolution order: explicit `-- CMD` override (family must be in `allow`); then `data/routing.tsv` row (operator pin — skips the rubric); then shipped/derived CLI with the per-job rubric (`--scope S|M|L`, `--risk low|high`, default S/low — [table](reports/model-routing.md)). Allowlist default `cursor,grok,anthropic` (`data/models.conf`, `CP_MODELS_ALLOW`). Catalog is `bin/cp models` (`data/models/<argv0>.tsv`); slug check is fail-closed only when a catalog exists (offline: stderr note, proceed). Claude kind rejects non-Anthropic slugs. Dispatch prints `source=` (`override`|`routing`|`shipped`|`derived`) plus `model=` `family=` `catalog=` `rule=` before lease. `bin/cp doctor` Models section. One installed CLI → all roles, no config. Several installed → documented preference (`agent`, `cursor-agent`, `claude`). Per-job override: `bin/cp dispatch ... -- CMD...`. `CP_GATE_CMD` still wins for gate. Dispatch probes argv[0] before lease — missing CLI exits 2 with no orphan branch.
 
 ### First brief
 

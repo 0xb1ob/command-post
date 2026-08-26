@@ -157,6 +157,17 @@ for role in ("researcher", "implementer", "gate-reviewer"):
 else
   fail "claude-only derived routing"
 fi
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["models"]["claude"]["status"] == "static"
+assert d["roles"]["implementer"]["model_status"] == "static"
+assert d["roles"]["researcher"]["argv"][-1] == "fable"
+'; then
+  ok "claude-only host → static catalog and fable research slug"
+else
+  fail "claude-only static model_status"
+fi
 
 # routing.tsv researcher → claude
 mkdir -p "$CP_HOME/data"
@@ -193,6 +204,20 @@ assert r["source"] == "shipped"
   ok "without routing.tsv → shipped agent defaults"
 else
   fail "shipped defaults in doctor JSON"
+fi
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert "models" in d
+assert "agent" in d["models"]
+assert d["models"]["agent"]["status"] in ("none", "failed", "fresh", "stale", "static")
+assert d["roles"]["implementer"]["model_status"] in (
+    "in-catalog", "not-in-catalog", "unvalidated(no catalog)", "static"
+)
+'; then
+  ok "doctor JSON Models section and role model_status"
+else
+  fail "doctor JSON models (out=$out)"
 fi
 
 # forbid row excludes CLI from derivation

@@ -13,7 +13,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "       %s artifact path|add|get ...\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s gate ID [--model M]\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s doctor [--json]\n", prog)
-	fmt.Fprintf(os.Stderr, "       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [--scope S|M|L] [--risk low|high] [-- CMD...]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s models [--json] [--cli ARGV0] [--family F] [--all]\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s teardown ID\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s status [--json] [--html] [--serve [--port N]] [--origin ID]\n", prog)
 	os.Exit(2)
@@ -26,8 +27,9 @@ func printStatusUsage() {
 
 func printDispatchUsage() {
 	prog := os.Args[0]
-	fmt.Fprintf(os.Stderr, "usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n", prog)
+	fmt.Fprintf(os.Stderr, "usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [--scope S|M|L] [--risk low|high] [-- CMD...]\n", prog)
 	fmt.Fprintf(os.Stderr, "       default CMD: from data/routing.tsv or shipped implementer default\n")
+	fmt.Fprintf(os.Stderr, "       --scope/--risk select a rubric row (default S/low); routing.tsv pins skip the rubric\n")
 	fmt.Fprintf(os.Stderr, "       --template research uses the researcher role default\n")
 	fmt.Fprintf(os.Stderr, "       worker CLI is probed before lease; missing CLI exits 2 (see bin/cp doctor)\n")
 	fmt.Fprintf(os.Stderr, "       stdout: one JSON object {br_id,worker,worktree,branch,state,receipt}\n")

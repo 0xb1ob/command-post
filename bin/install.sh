@@ -275,8 +275,8 @@ scaffold() {
   log "phase 2: scaffold"
   cd "$ROOT"
 
-  mkdir -p data projects state
-  log "dirs: data/ projects/ state/"
+  mkdir -p data projects state data/models
+  log "dirs: data/ projects/ state/ data/models/"
 
   write_if_absent data/projects.md <<'EOF'
 # Projects
@@ -365,6 +365,15 @@ gate-reviewer	agent	--model	composer-2.5-fast
 # forbid  claude
 EOF
 
+  write_if_absent data/models.conf <<'EOF'
+# allow: comma list of families from share/families.tsv
+allow=cursor,grok,anthropic
+# prefer.<cli_kind>: ordered family preference per CLI kind
+prefer.cursor=cursor,grok,anthropic
+prefer.claude=anthropic
+ttl_sec=86400
+EOF
+
   write_if_absent data/archive.md <<'EOF'
 # Archive
 
@@ -398,6 +407,11 @@ EOF
 
   copy_skills_to_harness
   ensure_muxa_hooks
+
+  # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline.
+  if [[ -x "$ROOT/bin/cp" ]]; then
+    "$ROOT/bin/cp" models refresh --quiet || true
+  fi
 }
 
 # Tracked source of truth is skills/. Agent CLIs discover project skills under
