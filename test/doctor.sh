@@ -104,14 +104,12 @@ fi
 if printf '%s\n' "$out" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-assert d["host"]["python3"]["ok"] is True
-assert d["host"]["python3"]["path"]
 assert d["host"]["muxa"]["ok"] is True
 assert d["host"]["muxa"]["version_ok"] is True
 '; then
-  ok "doctor JSON has python3.ok=true with path"
+  ok "doctor JSON has muxa.ok=true with version_ok"
 else
-  fail "doctor JSON python3/muxa version (out=$out)"
+  fail "doctor JSON muxa version (out=$out)"
 fi
 
 # Worker matrix: none installed

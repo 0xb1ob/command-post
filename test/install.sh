@@ -61,8 +61,18 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
   && fail "hook script does not assume command-post ships bin/muxa" \
   || ok "hook script does not assume command-post ships bin/muxa"
 
-has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
-has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
+has "$INSTALL" 'CP_VERSION_PIN="0.1.0"' \
+  "install.sh declares cp pin"
+lacks "$INSTALL" 'python3' \
+  "install.sh no longer requires python3 for bin/cp"
+has "$INSTALL" 'install_cp' \
+  "install.sh installs cp release binary"
+has "$INSTALL" 'cp_version_matches' \
+  "install.sh gates cp install on version match"
+has "$INSTALL" 'CP_INSTALL_URL' \
+  "install.sh supports CP_INSTALL_URL override"
+lacks "$INSTALL" 'python3 is for bin/cp' \
+  "install.sh no longer mentions python3 for bin/cp"
 has "$INSTALL" 'MUXA_VERSION_PIN="1.0.16"' \
   "install.sh declares muxa pin"
 has "$INSTALL" 'MUXA_BROKER_VERSION="$MUXA_VERSION_PIN"' \

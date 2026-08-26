@@ -11,6 +11,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
 MUXA_VERSION_PIN="1.0.16"
+CP_VERSION_PIN="0.1.0"
 BR_VERSION_PIN="v0.5.2"
 BR_VERSION="${BR_VERSION_PIN#v}"
 
@@ -38,16 +39,14 @@ ensure_bin_dir() {
 
 require_prereqs() {
   local missing=0
-  # python3 is required by bin/cp (JSON, brief, gate, status), not by muxa
-  # (#27 / PR #30 removed it as a muxa-broker realpath dependency).
-  for cmd in git curl tmux python3; do
+  for cmd in git curl tmux; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       warn "$cmd is required but not found"
       missing=1
     fi
   done
   if [[ "$missing" -ne 0 ]]; then
-    die "install git, curl, tmux, and python3 first (muxa needs tmux; python3 is for bin/cp)"
+    die "install git, curl, and tmux first (muxa needs tmux)"
   fi
 }
 
@@ -136,6 +135,57 @@ ensure_muxa_hooks() {
   done
 }
 
+cp_platform() {
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) return 1 ;;
+  esac
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    arm64 | aarch64) arch=arm64 ;;
+    *) return 1 ;;
+  esac
+  printf '%s-%s' "$os" "$arch"
+}
+
+cp_version_matches() {
+  command -v cp >/dev/null 2>&1 || return 1
+  local ver
+  ver="$(cp version 2>/dev/null | awk '{print $2}')"
+  [[ "$ver" == "$CP_VERSION_PIN" ]]
+}
+
+install_cp() {
+  local plat asset url dest
+  if cp_version_matches; then
+    log "cp: already installed ($(cp version 2>/dev/null | head -1))"
+    return 0
+  fi
+  plat="$(cp_platform)" || die "cp: unsupported platform $(uname -s)/$(uname -m)"
+  asset="cp-${plat}"
+  if [[ -n "${CP_INSTALL_URL:-}" ]]; then
+    url="$CP_INSTALL_URL"
+  else
+    url="https://github.com/0xb1ob/command-post/releases/download/v${CP_VERSION_PIN}/${asset}"
+  fi
+  dest="$BIN/cp"
+  log "cp: installing ${CP_VERSION_PIN} (${asset}) from release"
+  curl -fsSL "$url" -o "$dest" || {
+    if [[ -x "$ROOT/bin/.cp-bin" ]] && "$ROOT/bin/.cp-bin" version >/dev/null 2>&1; then
+      log "cp: release fetch failed; using checkout binary at $ROOT/bin/.cp-bin"
+      cp "$ROOT/bin/.cp-bin" "$dest"
+    else
+      die "cp install failed (could not fetch $url). Set CP_INSTALL_URL or build with: go build -o bin/.cp-bin ./cmd/cp"
+    fi
+  }
+  chmod +x "$dest"
+  if ! cp_version_matches; then
+    die "cp: version mismatch after install (want ${CP_VERSION_PIN})"
+  fi
+}
+
 br_version_matches() {
   command -v br >/dev/null 2>&1 || return 1
   [[ "$(br --version 2>/dev/null)" == "br ${BR_VERSION}" ]]
@@ -199,12 +249,14 @@ install_deps() {
   require_prereqs
   ensure_bin_dir
   install_muxa
+  install_cp
   install_br
   install_treehouse
 
   # Re-scan PATH so verify sees freshly linked binaries.
   export PATH="$BIN:$PATH"
   verify_tool muxa
+  verify_tool cp
   verify_tool br
   verify_tool treehouse
 }
