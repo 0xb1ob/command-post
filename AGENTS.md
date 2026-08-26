@@ -141,7 +141,7 @@ intake; gate pass is quality only, never authorization.
 3. Wait for the envelope ([muxa] mail; [templates/README.md](templates/README.md)). HARD RULE: workers never mail the findings body. A body in mail is a contract violation — do not act on it; capture a candidate.
 4. On envelope: `bin/cp jobs reported <research-id>`, `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
 5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate). Stdout JSON includes `cause` on every verdict (`null` on pass/revise; `policy`, `operational`, or `operational_persistent` on escalate — branch on this, not the reason prose):
-   - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI.
+   - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI. Keep the finding in [Status block](#status-block) **Awaiting you** until the operator resolves it.
    - **revise:** `muxa send` the researcher the reviewer's revisions. The tool enforces one revision max — a second revise becomes escalate. Researcher stays alive until pass.
    - **escalate (`cause: policy`):** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cp artifact get`. Rubric flags (`destructive_scope`, `scope_growth`, `blocking_unknowns`), attempt cap after one revise, or reviewer verdict escalate.
    - **escalate (`cause: operational`):** reviewer output unparseable after one in-run retry — re-run `bin/cp gate` immediately with the same `--model`; do not surface to the caller. Only the first such escalate per artifact is treated as a transient blip.
@@ -332,9 +332,7 @@ Every **operator-facing turn** ends with a **STATUS BLOCK**: four markdown table
 fixed order, **always rendered**. An absent table is ambiguous; use a
 `| — | none | … |` row when empty.
 
-**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries). **When omitted:** pure `[muxa]` wait turns with no outbound message.
-
-Keep turns short: one or two sentences of prose (outcome headline, full PR URL), **then** the block — the scannable WIP summary; do not restate facts above it. Never paste worker dumps into the block; plain-language rows only.
+**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries). **When omitted:** pure `[muxa]` wait turns with no outbound message. Keep turns short: one or two sentences of prose (outcome headline, full PR URL), **then** the block — the scannable WIP summary; do not restate facts above it. Never paste worker dumps into the block; plain-language rows only.
 
 ### Tables
 
@@ -347,7 +345,9 @@ Keep turns short: one or two sentences of prose (outcome headline, full PR URL),
 
 **Route human blockers to table 3, not table 2.** `br dep` deferrals → **Blocked**; your answer (infra, scope, gate escalate) → **Awaiting you** even when dependency-blocked. **Human decision = Awaiting you only** — never also in **Blocked**; never duplicate across both. **Type** is required on every **Awaiting you** row: `approval` (merge gate on verified work), `design` (scope/architecture authorizing new work), `authorization` (start or prioritize).
 
-**Shipped bound:** jobs closed since the **previous status block** (after `br close` with PR URL), max **five** rows — not the closed backlog; skip jobs already in the prior Shipped table.
+**Shipped bound:** max **five** rows since the previous status block — jobs closed with a PR URL only (`br close --reason "PR: …"`); not the closed backlog; skip rows already shown. Closed `kind:research` without a PR never belongs here.
+
+**Finished research (no PR):** same jobs → **Awaiting you** until the operator chooses **ship**, **drop**, or **follow-up research**. Re-verify every operator-facing turn; a closed br id alone is not clearance to drop the row. **Decision needed:** br id + label, **one-line finding** (gate verdict or `br close --reason`; never artifact body), plus the explicit ask. **Type:** `authorization` or `design`. Never **Blocked**; never **Shipped**-only.
 
 Example (idle session):
 ```markdown
@@ -372,8 +372,7 @@ Example (idle session):
 | — | none | — |
 ```
 
-This is not `bin/cp status` (live fleet snapshot). The parent **writes** this
-block for the operator; it is not rendered by a command.
+This is not `bin/cp status` (live fleet snapshot). The parent **writes** this block for the operator; it is not rendered by a command.
 
 ## Backlog (br)
 
