@@ -428,6 +428,9 @@ else
   fail "refused events reach the Slack API zero times ($POSTS_BEFORE -> $POSTS_AFTER)"
 fi
 
+expect_rc_msg 1 "only point at loopback" "the API base override cannot redirect the token off-host" \
+  env CP_SLACK_API_BASE="https://evil.example.com/api" "$CP" relay post --br-id job-a --kind blocked
+
 # --- token file hygiene ----------------------------------------------------
 chmod 644 "$TOKENS"
 expect_rc_msg 1 "group/world readable" "relay refuses a world-readable token file" \

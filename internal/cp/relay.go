@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -181,7 +182,6 @@ func renderEvent(templates map[string]string, ev ThreadEvent) (string, error) {
 type slackConfig struct {
 	BotToken string
 	AppToken string
-	Path     string
 }
 
 // loadSlackConfig reads the documented token file. Absent file = not
@@ -203,7 +203,7 @@ func loadSlackConfig(e *Env) (*slackConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := &slackConfig{Path: path}
+	cfg := &slackConfig{}
 	for _, line := range splitLines(string(data)) {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -234,11 +234,24 @@ func loadSlackConfig(e *Env) (*slackConfig, error) {
 
 // --- posting -----------------------------------------------------------------
 
-func slackAPIBase() string {
-	if v := os.Getenv("CP_SLACK_API_BASE"); v != "" {
-		return strings.TrimRight(v, "/")
+// slackAPIBase is overridable so the post path can be tested offline, but only
+// towards loopback: an env var must not be able to redirect a bot token to
+// someone else's host.
+func slackAPIBase() (string, error) {
+	v := os.Getenv("CP_SLACK_API_BASE")
+	if v == "" {
+		return slackAPIDefault, nil
 	}
-	return slackAPIDefault
+	v = strings.TrimRight(v, "/")
+	u, err := url.Parse(v)
+	if err != nil || u.Host == "" {
+		return "", failError("CP_SLACK_API_BASE is not a URL: %s", v)
+	}
+	host := u.Hostname()
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		return "", failError("CP_SLACK_API_BASE may only point at loopback (got %s) — it is a test seam, not a proxy setting", host)
+	}
+	return v, nil
 }
 
 func slackPostMessage(cfg *slackConfig, channel, threadTS, text string) error {
@@ -248,7 +261,11 @@ func slackPostMessage(cfg *slackConfig, channel, threadTS, text string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", slackAPIBase()+"/chat.postMessage", bytes.NewReader(body))
+	base, err := slackAPIBase()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", base+"/chat.postMessage", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -381,13 +398,17 @@ func relayStatus(e *Env, jsonOut bool) error {
 	default:
 		detail = "no " + e.SlackTokensFile()
 	}
+	apiBase, apiErr := slackAPIBase()
+	if apiErr != nil {
+		apiBase = "refused: " + apiErr.Error()
+	}
 	if jsonOut {
 		out := map[string]any{
 			"slack":       state,
 			"tokens_file": e.SlackTokensFile(),
 			"threads":     len(rows),
 			"log_dir":     e.ThreadsDir(),
-			"api_base":    slackAPIBase(),
+			"api_base":    apiBase,
 			"inbound":     "not implemented (see docs/slack-install.md)",
 		}
 		if detail != "" {

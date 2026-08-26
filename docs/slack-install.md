@@ -76,7 +76,9 @@ chmod 600 "$CP_HOME/state/slack/tokens.env"
 `state/` is gitignored, so this file is never committed. The relay **refuses to
 post** (exit 1) if the file is group- or world-readable, if `SLACK_BOT_TOKEN`
 is missing, or if it is not an `xoxb-` token. Override the path with
-`CP_SLACK_TOKENS` if you keep secrets elsewhere.
+`CP_SLACK_TOKENS` if you keep secrets elsewhere. `CP_SLACK_API_BASE` exists only
+so the tests can run offline and refuses anything but loopback — an env var must
+not be able to send your bot token to someone else's host.
 
 Confirm:
 
