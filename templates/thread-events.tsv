@@ -1,0 +1,18 @@
+# Slack thread event templates, one line per kind: kind<TAB>template.
+# Read from $CP_HOME/templates/thread-events.tsv by bin/cp relay. Built-in
+# defaults (internal/cp/relay.go) apply for any kind this file omits.
+#
+# Placeholders: {{br_id}} {{title}} {{branch}} {{worker}} {{blocked_on}}
+#               {{kind}} {{at}}
+# Any other {{...}} is a fail-closed render error.
+#
+# What may appear here is bounded by isolation, not by taste:
+#   - This job's own fields only. A template can name nothing outside the
+#     origin it renders for.
+#   - {{blocked_on}} is already redacted: a cross-origin br dep blocker renders
+#     as "another job", never its id or plain-language label.
+#   - No fleet-wide text. The STATUS BLOCK is terminal-only (AGENTS.md).
+dispatched	Job {{br_id}} dispatched — {{title}} (branch {{branch}}, worker {{worker}}).
+reported	Job {{br_id}} reported back — {{title}}. Review is with the operator.
+blocked	Job {{br_id}} is blocked — {{title}}. Waiting on {{blocked_on}}.
+closed	Job {{br_id}} closed — {{title}}.

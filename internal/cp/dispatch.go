@@ -90,6 +90,7 @@ func substituteBrief(src, dest, taskFile, parent, branch, brID, artifact string)
 func CmdDispatch(e *Env, args []string) error {
 	loadJobModelEnv()
 	project, brID, alias, template, taskFile := "", "", "", "", ""
+	origin := originTerminal
 	var agentCmd []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -143,6 +144,12 @@ func CmdDispatch(e *Env, args []string) error {
 			}
 			jobRisk = r
 			i++
+		case "--origin":
+			if i+1 >= len(args) {
+				return usageError("--origin needs ID")
+			}
+			origin = args[i+1]
+			i++
 		case "-h", "--help":
 			printDispatchUsage()
 			os.Exit(2)
@@ -161,6 +168,16 @@ func CmdDispatch(e *Env, args []string) error {
 	}
 	if err := validateJobID(brID); err != nil {
 		return err
+	}
+	if origin != originTerminal {
+		// A thread origin is copied from a relay-carried binding, never
+		// inferred: a wrong stamp routes this job's events to the wrong thread.
+		if err := validateOriginID(origin); err != nil {
+			return err
+		}
+		if _, ok := threadLookup(e, origin); !ok {
+			return failError("origin %s is not bound to a thread — bind it first (bin/cp threads bind)", origin)
+		}
 	}
 	if taskFile != "" {
 		if _, err := os.Stat(taskFile); err != nil {
@@ -292,7 +309,7 @@ func CmdDispatch(e *Env, args []string) error {
 	if jsonCwdNorm != wt {
 		return failError("muxa dispatch cwd %s != leased worktree %s — do not retype paths; occupancy may be live (worker %s)", parsed.CWD, wt, parsed.Worker)
 	}
-	if err := JobsAdd(e, brID, runtimeKV{worker: parsed.Worker, worktree: wt, branch: branch, origin: "terminal"}); err != nil {
+	if err := JobsAdd(e, brID, runtimeKV{worker: parsed.Worker, worktree: wt, branch: branch, origin: origin}); err != nil {
 		return err
 	}
 	receipt := "unconfirmed"

@@ -17,17 +17,62 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "       %s models [--json] [--cli ARGV0] [--family F] [--all]\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s teardown ID\n", prog)
 	fmt.Fprintf(os.Stderr, "       %s status [--json] [--html] [--serve [--port N]] [--origin ID]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads bind|unbind|list|events|status|log ...\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s relay render|post|status ...\n", prog)
+	os.Exit(2)
+}
+
+func printThreadsUsage() {
+	prog := os.Args[0]
+	fmt.Fprintf(os.Stderr, "usage: %s threads bind ID channel=CID thread_ts=TS\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads unbind ID\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads list [--json]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads events ID [--json]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads status ID [--json]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s threads log ID\n", prog)
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "ID is the origin id stamped in the jobs.tsv origin column and is the\n")
+	fmt.Fprintf(os.Stderr, "routing key: br_id -> origin (state/jobs.tsv) -> thread (state/threads.tsv).\n")
+	fmt.Fprintf(os.Stderr, "origin=terminal is terminal dispatch and can never be bound.\n")
+	fmt.Fprintf(os.Stderr, "events derives dispatched|reported|blocked|closed from the ledger; a job\n")
+	fmt.Fprintf(os.Stderr, "with no origin is routable nowhere and is dropped, never broadcast.\n")
+	fmt.Fprintf(os.Stderr, "Cross-origin br dep blockers keep phase blocked with id and title redacted.\n")
+	os.Exit(2)
+}
+
+func printRelayUsage() {
+	prog := os.Args[0]
+	fmt.Fprintf(os.Stderr, "usage: %s relay render --br-id ID --kind KIND [--json]\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s relay post --br-id ID --kind KIND\n", prog)
+	fmt.Fprintf(os.Stderr, "       %s relay status [--json]\n", prog)
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "The relay is the only writer to Slack; the parent never posts. It renders\n")
+	fmt.Fprintf(os.Stderr, "one templated, origin-keyed job event per call — never a parent turn and\n")
+	fmt.Fprintf(os.Stderr, "never a STATUS BLOCK (terminal-only).\n")
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "  KIND        dispatched | reported | blocked | closed\n")
+	fmt.Fprintf(os.Stderr, "  templates   $CP_HOME/templates/thread-events.tsv overrides the built-ins\n")
+	fmt.Fprintf(os.Stderr, "  tokens      $CP_HOME/state/slack/tokens.env (mode 600); CP_SLACK_TOKENS overrides\n")
+	fmt.Fprintf(os.Stderr, "  logs        posts append to state/threads/<origin>.out.log (outbound only);\n")
+	fmt.Fprintf(os.Stderr, "              refusals append to state/threads/dropped.log\n")
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "Exit: 0 posted, 1 refused (no origin, unbound origin, bad token file, API\n")
+	fmt.Fprintf(os.Stderr, "error), 2 usage, %d not configured (no tokens — nothing posted).\n", exitNotConfigured)
+	fmt.Fprintf(os.Stderr, "Inbound (Socket Mode) is not implemented: it needs an installed workspace\n")
+	fmt.Fprintf(os.Stderr, "app. See docs/slack-install.md.\n")
 	os.Exit(2)
 }
 
 func printStatusUsage() {
 	fmt.Fprintf(os.Stderr, "usage: %s status [--json] [--html] [--serve [--port N]] [--origin ID] [--pane ALIAS]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "       --serve default port is derived from CP_HOME (CP_STATUS_PORT overrides)\n")
 	os.Exit(2)
 }
 
 func printDispatchUsage() {
 	prog := os.Args[0]
-	fmt.Fprintf(os.Stderr, "usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [--scope S|M|L] [--risk low|high] [-- CMD...]\n", prog)
+	fmt.Fprintf(os.Stderr, "usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [--scope S|M|L] [--risk low|high] [--origin ID] [-- CMD...]\n", prog)
+	fmt.Fprintf(os.Stderr, "       --origin defaults to terminal (posts nowhere); a thread origin must be bound first\n")
 	fmt.Fprintf(os.Stderr, "       default CMD: from data/routing.tsv or shipped implementer default\n")
 	fmt.Fprintf(os.Stderr, "       --scope/--risk select a rubric row (default S/low); routing.tsv pins skip the rubric\n")
 	fmt.Fprintf(os.Stderr, "       --template research uses the researcher role default\n")

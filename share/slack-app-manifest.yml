@@ -1,0 +1,63 @@
+# Slack app manifest for one command-post home — per user, not per workspace.
+#
+# This file is checked in so the app can be reviewed before it exists. Nothing
+# in this repo creates, installs, or authorizes it: creating the app from this
+# manifest and installing it to a workspace is a human step, documented in
+# docs/slack-install.md. Until that happens, `bin/cp relay` posts nothing and
+# exits 3 (not configured), and `bin/cp doctor` stays green.
+#
+# One app per human. Socket Mode delivers each event to exactly one connected
+# client per app, so N people sharing one app round-robin each other's events.
+# Rename display_information.name and bot_user.display_name per person
+# (cp-<name>), then create the app at https://api.slack.com/apps.
+#
+# Scopes are the outbound floor plus what inbound will need after install:
+#   chat:write          post job events into a bound thread (the only write)
+#   channels:history    read the thread this app was mentioned in (public)
+#   groups:history      same, private channels the app is invited to
+#   im:history          same, DMs
+#   app_mentions:read   receive the mention that steers a job
+#   users:read          attribute a requester to a Slack user id
+# No files:*, no admin:*, no chat:write.customize, no user token scopes: the
+# app speaks only as itself, in threads it was invited to.
+display_information:
+  name: cp-you
+  description: Command-post steering plane for one operator's fleet.
+  long_description: >-
+    Posts templated, origin-keyed job events into the Slack thread that asked
+    for the work, and receives mentions that steer that operator's command-post
+    parent. One app per human: Socket Mode gives each app one connected client,
+    and events must not round-robin between colleagues. The parent never posts
+    here; a relay renders each event from the local job ledger. Fleet-wide
+    status stays in the operator's terminal.
+  background_color: "#1f2430"
+features:
+  bot_user:
+    display_name: cp-you
+    always_online: false
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - channels:history
+      - groups:history
+      - im:history
+      - app_mentions:read
+      - users:read
+settings:
+  # Socket Mode: no public HTTP endpoint, so a laptop needs no inbound tunnel.
+  socket_mode_enabled: true
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  token_rotation_enabled: false

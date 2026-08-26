@@ -333,7 +333,7 @@ Every **operator-facing turn** ends with a **STATUS BLOCK**: four markdown table
 fixed order, **always rendered**. An absent table is ambiguous; use a
 `| — | none | … |` row when empty.
 
-**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries). **When omitted:** pure `[muxa]` wait turns with no outbound message. Keep turns short: one or two sentences of prose (outcome headline, full PR URL), **then** the block — the scannable WIP summary; do not restate facts above it. Never paste worker dumps into the block; plain-language rows only.
+**When required:** operator-facing turns (dispatch, wait relay, blockers, summaries). **When omitted:** pure `[muxa]` wait turns with no outbound message. **Never a Slack thread** — a thread is not an operator-facing surface ([why](#slack-threads-origins)). Keep turns short: one or two sentences of prose (outcome headline, full PR URL), **then** the block — the scannable WIP summary; do not restate facts above it. Never paste worker dumps into the block; plain-language rows only.
 
 ### Tables
 
@@ -374,6 +374,28 @@ Example (idle session):
 ```
 
 This is not `bin/cp status` (live fleet snapshot). The parent **writes** this block for the operator; it is not rendered by a command.
+
+## Slack threads (origins)
+
+Terminal-only above: the operator sees every origin, a thread sees one.
+**The parent never writes to Slack.** What crosses into a thread is a templated,
+`origin`-keyed job event rendered by `bin/cp relay` from the ledger — never a parent
+turn, never the STATUS BLOCK. No output filter on parent turns: prose, when wanted,
+is a scoped composer whose only inputs are that thread's own Slack messages, that
+origin's `jobs.tsv` rows, and those envelopes.
+
+**`br_id` is the routing key.** `state/jobs.tsv` maps `br_id → origin`
+(`bin/cp dispatch --origin`, default `terminal`); `state/threads.tsv` maps
+`origin → (channel, thread_ts)` (`bin/cp threads bind`). Missing origin, unbound
+origin, or `origin=terminal` → **post nowhere**, log locally. Posts append to
+`state/threads/<origin>.out.log` — outbound only; inbound Slack is never stored.
+
+**Cross-origin `br dep` is a confidentiality edge.** A job blocked by another
+origin's job shows `blocked` with id and label redacted — `Job` cells pair br id
+with a plain-language label, and the label is the leak. Permanent until the blocker
+shares the origin or closes; that reads like a bug and is not
+([why](reports/origin-scoping.md)). Thread views: `bin/cp threads events|status`.
+Install is a human step, after merge: [docs/slack-install.md](docs/slack-install.md).
 
 ## Backlog (br)
 
@@ -477,4 +499,5 @@ with provenance (file + section). Never delete.
 ## State files
 
 Tracked vs gitignored: [README Layout](README.md#layout). Never commit `data/`,
-`state/`, `projects/`, `.beads/`, or harness skill copies.
+`state/`, `projects/`, `.beads/`, or harness skill copies. Slack tokens live in
+`state/slack/tokens.env` (mode 600) — gitignored, never in a brief or a PR.
