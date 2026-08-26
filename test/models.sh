@@ -150,7 +150,7 @@ set_test_path
 # Parse fixture: drop auto, classify families, keep (NO ZDR) / kimi / claude-4.6-opus-high
 "$CP" models refresh --cli agent --quiet
 tsv="$CP_HOME/data/models/agent.tsv"
-if [[ -f "$tsv" ]] && ! grep -F -q $'\tauto\t' "$tsv" && ! grep -E -q '^auto\t' "$tsv"; then
+if [[ -f "$tsv" ]] && ! grep -F -q $'\tauto\t' "$tsv" && ! grep -F -q $'auto\t' "$tsv"; then
   ok "refresh drops auto"
 else
   fail "refresh drops auto (tsv=$(cat "$tsv" 2>/dev/null))"
@@ -160,12 +160,12 @@ if grep -F -q 'claude-fable-5-high' "$tsv" && grep -F -q '(NO ZDR)' "$tsv"; then
 else
   fail "refresh keeps (NO ZDR)"
 fi
-if grep -E -q '^kimi-k3-low\tother\t' "$tsv"; then
+if grep -F -q $'kimi-k3-low\tother\t' "$tsv"; then
   ok "kimi-* classifies as other"
 else
   fail "kimi-* classifies as other ($(grep kimi "$tsv" || true))"
 fi
-if grep -E -q '^claude-4.6-opus-high\tanthropic\t' "$tsv"; then
+if grep -F -q $'claude-4.6-opus-high\tanthropic\t' "$tsv"; then
   ok "claude-4.6-opus-high classifies as anthropic"
 else
   fail "claude-4.6-opus-high family"
@@ -242,7 +242,7 @@ if [[ "$gc" -eq 2 && "$gg" -ge 10 && "$ga" -ge 50 && "$go" -ge 50 && "$ge" -ge 5
 else
   fail "generated listing family counts (cursor=$gc grok=$gg anth=$ga openai=$go gemini=$ge other=$go2)"
 fi
-if grep -E -q '^auto\t' "$tsv"; then
+if grep -F -q $'auto\t' "$tsv"; then
   fail "generated listing dropped auto"
 else
   ok "generated listing dropped auto"
