@@ -108,6 +108,9 @@ case "$cmd" in
     if [ -n "${CP_TEST_DISPATCH_CWD:-}" ]; then
       cwd="$CP_TEST_DISPATCH_CWD"
     fi
+    if [ -n "${CP_TEST_DISPATCH_WARN:-}" ]; then
+      printf '%s\n' "$CP_TEST_DISPATCH_WARN" >&2
+    fi
     [ -n "$name" ] || name="swift-oak"
     printf '{"name":"%s","id":"abc","pane":"%%1","cwd":"%s","state":"dispatched","from":"test-parent","to":"%s"}\n' \
       "$name" "$cwd" "$name"
@@ -117,6 +120,11 @@ case "$cmd" in
     ;;
   kill)
     printf '%s\n' "$*" >> "${CP_TEST_KILL_LOG:?}"
+    printf 'seq kill %s\n' "$*" >> "${CP_TEST_TH_LOG:?}"
+    if [ -n "${CP_TEST_KILL_FAIL:-}" ]; then
+      printf 'muxa shim: kill forced fail\n' >&2
+      exit 1
+    fi
     ;;
   *)
     printf 'muxa shim: unexpected %s\n' "$cmd" >&2
@@ -134,6 +142,8 @@ case "$1" in
     printf '%s\n' "${CP_TEST_LEASE:?}"
     ;;
   return)
+    shift
+    printf 'seq return %s\n' "$*" >> "${CP_TEST_TH_LOG:?}"
     ;;
   *)
     printf 'treehouse shim: unexpected %s\n' "$1" >&2
@@ -196,7 +206,7 @@ reset_logs() {
   rm -f "$CP_TEST_BRIEF_COPY"
   printf '[]\n' > "$CP_TEST_WHO"
   : > "$CP_TEST_TAIL"
-  unset CP_TEST_DISPATCH_CWD || true
+  unset CP_TEST_DISPATCH_CWD CP_TEST_DISPATCH_WARN CP_TEST_KILL_FAIL || true
   rm -f "$CP_JOBS_FILE"
 }
 
@@ -688,6 +698,63 @@ if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
 else
   ok "check failure does not call muxa dispatch"
 fi
+
+# dispatch stderr occupancy warning vs empty who roster → fail closed
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-warn" >/dev/null
+LEASE_WARN="$(cd "$TMP/leased-warn" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_WARN"
+printf '[]\n' > "$CP_TEST_WHO"
+export CP_TEST_DISPATCH_WARN="muxa: warning: cwd $LEASE_WARN already has live worker lunar-wolf"
+expect_rc_msg 1 "omits that worker" \
+  "dispatch occupancy warning with absent roster is refused" \
+  "$CP" dispatch --project demo --br-id job-warn --task-file "$TMP/task.txt"
+if grep -q 'dispatch' "$CP_TEST_DISPATCH_LOG"; then
+  ok "occupancy contradiction reached muxa dispatch after check"
+else
+  fail "occupancy contradiction should call muxa dispatch"
+fi
+if grep -q "return --force $LEASE_WARN" "$CP_TEST_TH_LOG"; then
+  ok "occupancy contradiction returns the lease"
+else
+  fail "occupancy contradiction returns the lease (log=$(cat "$CP_TEST_TH_LOG"))"
+fi
+if "$CP" jobs list --json 2>/dev/null | python3 -c 'import json,sys; assert not any(r["job"]=="job-warn" for r in json.load(sys.stdin))'; then
+  ok "occupancy contradiction does not jobs add"
+else
+  fail "occupancy contradiction should not jobs add"
+fi
+if grep -F -q -- 'swift-oak' "$CP_TEST_KILL_LOG"; then
+  ok "occupancy contradiction kills the dispatched pane"
+else
+  fail "occupancy contradiction should muxa kill the dispatched pane (log=$(cat "$CP_TEST_KILL_LOG"))"
+fi
+kill_line="$(grep -n '^seq kill swift-oak' "$CP_TEST_TH_LOG" | head -n1 | cut -d: -f1 || true)"
+return_line="$(grep -n '^seq return' "$CP_TEST_TH_LOG" | head -n1 | cut -d: -f1 || true)"
+if [[ -n "$kill_line" && -n "$return_line" && "$kill_line" -lt "$return_line" ]]; then
+  ok "occupancy contradiction kills pane before returning lease"
+else
+  fail "occupancy contradiction should kill before return (log=$(cat "$CP_TEST_TH_LOG"))"
+fi
+unset CP_TEST_DISPATCH_WARN
+
+# kill failure on contradiction → keep the lease
+reset_logs
+git -C "$CLONE" worktree add --detach -q "$TMP/leased-warn-kill" >/dev/null
+LEASE_WARN_KILL="$(cd "$TMP/leased-warn-kill" && pwd -P)"
+export CP_TEST_LEASE="$LEASE_WARN_KILL"
+printf '[]\n' > "$CP_TEST_WHO"
+export CP_TEST_DISPATCH_WARN="muxa: warning: cwd $LEASE_WARN_KILL already has live worker lunar-wolf"
+export CP_TEST_KILL_FAIL=1
+expect_rc_msg 1 "lease kept" \
+  "occupancy contradiction with failed kill keeps the lease" \
+  "$CP" dispatch --project demo --br-id job-warn-kill --task-file "$TMP/task.txt"
+if grep -q '^seq return' "$CP_TEST_TH_LOG"; then
+  fail "kill failure should not return the lease (log=$(cat "$CP_TEST_TH_LOG"))"
+else
+  ok "kill failure on contradiction does not return the lease"
+fi
+unset CP_TEST_DISPATCH_WARN CP_TEST_KILL_FAIL
 
 # cwd mismatch: dispatch succeeded, do not return the lease
 reset_logs
