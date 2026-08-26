@@ -76,4 +76,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.event.release.tag_name }}
-          files: dist/cp-* dist/SHA256SUMS
+          # One glob per line: a space-separated string is parsed as a single pattern.
+          files: |
+            dist/cp-*
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
