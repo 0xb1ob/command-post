@@ -105,6 +105,25 @@ OTHER_WT="$(cd "$TMP/other-wt" && pwd -P)"
 expect_rc_msg 1 "belongs to another repo" "foreign worktree prints belongs-to-another-repo" \
   "$CP" check --project demo "$OTHER_WT"
 
+out="$(env MUXA_WHO_CMD="$MUXA_WHO_CMD" "$CP" check --project demo "$OTHER_WT" 2>&1)" || rc=$?
+rc=${rc:-0}
+if [[ "$rc" -ne 1 ]]; then
+  fail "foreign worktree exits 1 (got $rc)"
+else
+  ok "foreign worktree exits 1"
+fi
+last_line="$(printf '%s\n' "$out" | tail -n1)"
+if printf '%s' "$last_line" | grep -Fq 'belongs to another repo'; then
+  ok "git fail last line is belongs-to-another-repo"
+else
+  fail "git fail last line (got: $last_line)"
+fi
+if printf '%s\n' "$out" | grep -Fq 'clear: no other live'; then
+  fail "git fail should not print occupancy-clear"
+else
+  ok "git fail skips occupancy when git preflight failed"
+fi
+
 # primary checkout is not a linked worktree
 expect_rc_msg 1 "is the primary checkout, not a linked worktree" "primary checkout is refused as a dispatch worktree" \
   "$CP" check --project demo "$CLONE"

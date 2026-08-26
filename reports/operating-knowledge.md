@@ -98,11 +98,11 @@ Never `git worktree add` under `projects/.worktrees/`. See
 
 ## Manual lease fallback (#76)
 
-`treehouse get --lease <PATH>` does **not** honour the path — asking for
-`projects/muxa` can return a command-post worktree. Prefer `bin/cp dispatch
---project NAME`. Manual path: `cd projects/<name>` first; assert
-`git -C "$W" rev-parse --git-common-dir` matches `projects/<name>/.git`; read
-**all** of `bin/cp check` output. Tracked: [command-post#76](https://github.com/0xb1ob/command-post/issues/76).
+`treehouse get --lease` keys off cwd, not a path argument — never pass
+`projects/<name>` as an arg. Use `bin/cp lease --project NAME` (cd into the
+canonical clone first). If `bin/cp` itself is unavailable: `cd projects/<name>`
+then `treehouse get --lease`; always follow with `bin/cp check --project NAME
+"$worktree"`. See [dispatch-hardening.md](dispatch-hardening.md#2-stale-clone--belongs-to-another-repo).
 
 ## Bind the leased path
 

@@ -166,7 +166,7 @@ path, no envelope) → parent may `artifact add` + `gate` from that path.
 clone/worktree facts and promote-not-spawn; it does not dispatch, send mail, or
 write `bin/cp jobs`. Do not reimplement `muxa dispatch`.
 
-`bin/cp` unavailable: lease from `projects/<name>`; bind the printed path; `bin/cp check --project NAME "$worktree"`; `muxa dispatch --cwd "$worktree" --brief-file`; `bin/cp jobs add`. Do not retype the path. Policy: [Promote vs new lease](#promote-vs-new-lease). `bin/cp check` reads `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; else fail-closed).
+`bin/cp` unavailable: `cd projects/<name>` then `treehouse get --lease` (no path — cwd keys the pool); bind the path; `bin/cp check --project NAME "$worktree"`; `muxa dispatch --cwd "$worktree" --brief-file`; `bin/cp jobs add`. Do not retype the path. Policy: [Promote vs new lease](#promote-vs-new-lease). `bin/cp check` reads `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; else fail-closed).
 
 ### Promote vs new lease
 
@@ -181,7 +181,7 @@ same repo AND same worktree still held (lease not returned) AND same model
 
 worktree was returned, OR the job is independent
   (different repo, or a second worktree on the same repo)
-  → treehouse get --lease from projects/<name>
+  → bin/cp lease --project NAME
   → bind the printed path; muxa dispatch --cwd "$worktree" (sequentially, or --name)
 ```
 
@@ -193,8 +193,8 @@ If `bin/cp check` reports **belongs to another repo**, recover. Rationale:
 [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
 
 1. `treehouse return --force <bad-worktree>`
-2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire extra clones so they are not `treehouse get` cwd
-3. Re-lease from `projects/<name>`: `treehouse get --lease`
+2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire extra clones so they are not lease cwd
+3. Re-lease: `bin/cp lease --project <name>`
 4. `bin/cp check --project <name> <worktree>` on the new path
 
 `git worktree add` is allowed only when **treehouse is not installed**. A treehouse
@@ -206,7 +206,7 @@ Clone on demand into `projects/<name>` (gitignored); registry is `data/projects.
 Not-yet-local: clone there, then add/update Name, Clone URL, Path (`projects/<name>`),
 Delivery (`pr` | `local` | `pipeline`), Notes. Do not clone into this repo root.
 `project:<name>` labels must match the Name column. One canonical clone per name;
-retire extra checkouts so `treehouse get --lease` cannot pick them up.
+retire extra checkouts so `bin/cp lease` cannot pick them up from the wrong cwd.
 
 ## Worker dispatch
 
