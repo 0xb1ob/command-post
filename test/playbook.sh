@@ -108,6 +108,15 @@ has "\`approval\`" "approval decision type is defined"
 has "\`design\`" "design decision type is defined"
 has "\`authorization\`" "authorization decision type is defined"
 
+# Finished research linger (operator-facing status block)
+has "**Finished research (no PR):**" "finished research linger rule is documented"
+has "Closed \`kind:research\` without a PR never belongs" "shipped excludes closed research without pr"
+has "one-line finding" "research awaiting-you row requires one-line finding"
+has "**ship**, **drop**, or **follow-up research**" "research row asks ship drop or follow-up"
+has "not clearance to drop the row" "closed br id alone does not clear research row"
+has "Re-verify every operator-facing turn" "finished research rows are re-verified each turn"
+has "never **Shipped**-only" "finished research belongs in awaiting you not shipped"
+
 lacks "muxa unregister" "muxa unregister is gone (command does not exist)"
 lacks "muxa deliver" "muxa deliver is gone (delivery is the broker's alone)"
 lacks "### Named temporary exception: \`tmux kill-pane\` at teardown" "named tmux kill-pane exception is gone"

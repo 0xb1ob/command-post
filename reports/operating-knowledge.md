@@ -182,7 +182,9 @@ dispute-in-writing, not silent omission.
 ## Status block: re-derive blockers
 
 Re-verify every Blocked row each turn — a blocked list is a claim, not state to
-copy. Human decisions belong in Awaiting you only. Same-base merge hazard means
+copy. Human decisions belong in Awaiting you only. Closed `kind:research` without a
+PR URL lingers in **Awaiting you** until the operator chooses ship, drop, or
+follow-up research — see [Status block](../AGENTS.md#status-block). Same-base merge hazard means
 **rebase before merge**, not unnecessary serialization. Tool refusal ≠ impossibility —
 use the documented manual path when appropriate.
 
