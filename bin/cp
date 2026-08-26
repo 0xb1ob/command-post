@@ -9,7 +9,7 @@
 #   bin/cp doctor [--json]
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
-#   bin/cp teardown ID
+#   bin/cp teardown ID [--research]
 #   bin/cp status [--json] [--html] [--serve [--port N]] [--origin ID]
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
@@ -179,8 +179,9 @@ usage_dispatch() {
 }
 
 usage_teardown() {
-  printf 'usage: %s teardown ID\n' "$PROG" >&2
-  printf '       fail-closed: dirty or unpushed keeps the lease. Does not close the br issue.\n' >&2
+  printf 'usage: %s teardown ID [--research]\n' "$PROG" >&2
+  printf '       fail-closed: dirty or unpushed keeps the lease (ship). kind:research: clean + no local commits.\n' >&2
+  printf '       --research: force research gate when br labels are unavailable. Does not close the br issue.\n' >&2
 }
 
 usage_jobs() {
@@ -794,23 +795,58 @@ require_br() {
   fi
 }
 
-require_br_issue() {
-  local id="$1"
-  local -a cmd
-  local db
+br_show_argv() {
+  BR_SHOW_ARGV=()
   if [[ -n "${BR_SHOW_CMD:-}" ]]; then
     # shellcheck disable=SC2206
-    cmd=($BR_SHOW_CMD)
+    BR_SHOW_ARGV=($BR_SHOW_CMD)
   else
     require_br
-    db="$(resolve_beads_db)"
-    cmd=(br --db "$db" show --json)
+    BR_SHOW_ARGV=(br --db "$(resolve_beads_db)" show --json)
   fi
+}
+
+require_br_issue() {
+  local id="$1"
+  br_show_argv
   # br discovers .beads/ from cwd. Orchestrator home is CP_HOME; --db
   # pins the tracker so a worktree cwd cannot spawn a second database.
-  if ! (cd "$CP_HOME" && "${cmd[@]}" "$id" >/dev/null); then
+  if ! (cd "$CP_HOME" && "${BR_SHOW_ARGV[@]}" "$id" >/dev/null); then
     die "no br issue $id — jobs are keyed by br id; create the issue first"
   fi
+}
+
+br_issue_label_value() {
+  local id="$1" prefix="$2"
+  local raw val
+  br_show_argv
+  if ! raw="$(cd "$CP_HOME" && "${BR_SHOW_ARGV[@]}" "$id" 2>/dev/null)"; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  if val="$(BR_LABEL_PREFIX="$prefix" python3 -c '
+import json, os, sys
+raw = sys.stdin.read()
+prefix = os.environ.get("BR_LABEL_PREFIX", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(1)
+if isinstance(data, list):
+    data = data[0] if data else {}
+labels = data.get("labels") or []
+for lab in labels:
+    if isinstance(lab, str) and lab.startswith(prefix):
+        print(lab[len(prefix):])
+        sys.exit(0)
+sys.exit(1)
+' <<< "$raw")"; then
+    printf '%s\n' "$val"
+    return 0
+  fi
+  return 1
 }
 
 parse_runtime_kv() {
@@ -3407,6 +3443,46 @@ worker_kind() {
   printf '\n'
 }
 
+assert_clean_research() {
+  local wt="$1" branch="$2"
+  local dirty base ahead upstream local_rev remote_rev
+  dirty="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
+  if [[ -n "$dirty" ]]; then
+    printf '[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
+    exit 1
+  fi
+  base="$(default_base_branch "$wt")"
+  if git -C "$wt" rev-parse --verify --quiet "origin/$branch" >/dev/null; then
+    local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
+    remote_rev="$(git -C "$wt" rev-parse "origin/$branch")"
+    if [[ "$local_rev" == "$remote_rev" ]]; then
+      return 0
+    fi
+    printf '[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
+      "$wt" "$branch" "$branch" >&2
+    exit 1
+  fi
+  if upstream="$(git -C "$wt" rev-parse --abbrev-ref --verify '@{u}' 2>/dev/null)"; then
+    local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
+    remote_rev="$(git -C "$wt" rev-parse '@{u}')"
+    if [[ "$local_rev" != "$remote_rev" ]]; then
+      printf '[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
+        "$wt" "$branch" "${local_rev:0:12}" "$upstream" >&2
+      exit 1
+    fi
+  fi
+  ahead=0
+  if git -C "$wt" rev-parse --verify --quiet "$branch" >/dev/null \
+    && git -C "$wt" rev-parse --verify --quiet "origin/$base" >/dev/null; then
+    ahead="$(git -C "$wt" rev-list --count "origin/$base..$branch" 2>/dev/null || echo 0)"
+  fi
+  if [[ "$ahead" != "0" ]]; then
+    printf '[cp] error: research branch %s has %s unpushed commit(s) on %s — keep the lease; reset or push, then retry teardown\n' \
+      "$branch" "$ahead" "$wt" >&2
+    exit 1
+  fi
+}
+
 assert_clean_and_pushed() {
   local wt="$1" branch="$2"
   local dirty local_rev remote_rev upstream head_branch base
@@ -3704,6 +3780,10 @@ cmd_doctor() {
   [[ $# -eq 0 ]] || die_doctor_usage "doctor takes no arguments"
 
   local -a host_tools=(python3 muxa br treehouse git tmux)
+  local br_slug_ok=0
+  if br_create_supports_slug; then
+    br_slug_ok=1
+  fi
   local -a cli_names=() forbid=()
   local name role source kr
   local -a role_argv=()
@@ -3731,6 +3811,7 @@ cmd_doctor() {
     export CP_DOCTOR_ROOT="$ROOT" CP_DOCTOR_HOME="$CP_HOME"
     export CP_DOCTOR_ROLES_JSON
     CP_DOCTOR_ROLES_JSON="$(doctor_roles_json)"
+    export CP_DOCTOR_BR_SLUG_OK="$br_slug_ok"
     python3 - "$ROOT" "$CP_HOME" "$host_missing" <<'PY'
 import json, os, subprocess, sys
 
@@ -3753,6 +3834,8 @@ host = {}
 for ht in host_tools:
     p = path_of(ht)
     host[ht] = {"ok": p is not None, "path": p or ""}
+if host.get("br", {}).get("ok"):
+    host["br"]["create_slug"] = os.environ.get("CP_DOCTOR_BR_SLUG_OK") == "1"
 
 clis = {}
 if os.path.isfile(clis_path):
@@ -3801,6 +3884,12 @@ missing = []
 for ht, info in host.items():
     if not info["ok"]:
         missing.append({"what": ht, "kind": "host", "fix": f"install {ht} (bin/install.sh for muxa, br, treehouse)"})
+if host.get("br", {}).get("ok") and not host["br"].get("create_slug"):
+    missing.append({
+        "what": "br --slug",
+        "kind": "host-feature",
+        "fix": "run bin/install.sh (upgrades br when create lacks --slug; AGENTS.md intake requires it)",
+    })
 seen = set()
 for role, rinfo in roles.items():
     argv0 = rinfo["argv0"]
@@ -3829,7 +3918,7 @@ out = {
 }
 print(json.dumps(out))
 PY
-    exit $(( host_missing ? 2 : 0 ))
+    exit $(( host_missing || br_slug_ok == 0 ? 2 : 0 ))
   fi
 
   printf 'command-post home: %s\n' "$CP_HOME"
@@ -3874,15 +3963,28 @@ PY
     printf '\n[cp] error: one or more host tools are missing — run bin/install.sh\n' >&2
     exit 2
   fi
+  if [[ "$br_slug_ok" -eq 0 ]]; then
+    printf '\n[cp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)\n' >&2
+    exit 2
+  fi
+}
+
+br_create_supports_slug() {
+  command -v br >/dev/null 2>&1 \
+    && br create --help 2>/dev/null | grep -q -- '--slug <SLUG>'
 }
 
 cmd_teardown() {
-  local id=""
+  local id="" research_flag=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help)
         usage_teardown
         exit 2
+        ;;
+      --research)
+        research_flag=1
+        shift
         ;;
       -*)
         die_usage "unknown flag $1"
@@ -3897,7 +3999,7 @@ cmd_teardown() {
   [[ -n "$id" ]] || die_usage "teardown needs ID"
   validate_job_id "$id"
 
-  local row job worker worktree branch
+  local row job worker worktree branch kind=""
   row="$(jobs_lookup "$id")" || die "no runtime row for $id — nothing to tear down (bin/cp jobs list)"
   IFS=$'\t' read -r job worker worktree branch _ <<< "$row"
   [[ -n "$worktree" ]] || die "runtime row $id has an empty worktree — keep the lease; fix bin/cp jobs"
@@ -3905,7 +4007,18 @@ cmd_teardown() {
   [[ -n "$branch" ]] || die "runtime row $id has an empty branch — keep the lease; fix bin/cp jobs"
   [[ -d "$worktree" ]] || die "worktree $worktree is missing — keep the lease; restore the path or fix the jobs row"
 
-  assert_clean_and_pushed "$worktree" "$branch"
+  if [[ "$research_flag" -eq 1 ]]; then
+    kind="research"
+  elif kind="$(br_issue_label_value "$id" "kind:" 2>/dev/null)"; then
+    :
+  else
+    kind=""
+  fi
+  if [[ "$kind" == "research" ]]; then
+    assert_clean_research "$worktree" "$branch"
+  else
+    assert_clean_and_pushed "$worktree" "$branch"
+  fi
   artifact_teardown_guard "$id"
   treehouse_return_force "$worktree"
 

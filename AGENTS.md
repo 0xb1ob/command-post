@@ -296,7 +296,7 @@ kill or re-dispatch.
 
 ### Teardown
 
-**Path:** `bin/cp teardown <br-id>` — clean+pushed verify, `treehouse return --force`
+**Path:** `bin/cp teardown <br-id>` — ship: clean+pushed; `kind:research`: clean+no local commits ([why](reports/teardown-research.md)). `treehouse return --force`
 from outside the worktree, `muxa kill NAME|ID`, `bin/cp jobs done`, drops
 `state/artifacts/<id>`. Does not close the br issue (PR URL on `br close`).
 For **`delivery:pr`**, teardown only after the [hold](#worker-envelope) ends
@@ -407,6 +407,7 @@ br create "<job title>" -t task -p 2 \
 ```
 
 Ad-hoc (no GitHub issue): same without `--external-ref`, add `-d "<description>"`.
+`--slug` needs current `br` ([why](reports/br-slug-install.md)).
 Use the returned id everywhere below. Notes: `br update <id> --notes "…"`. Comments:
 `br comments add <id> "…"`.
 

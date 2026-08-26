@@ -63,7 +63,8 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
 
 has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
 has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
-has "$INSTALL" 'data/routing.tsv' "install.sh scaffolds data/routing.tsv"
+has "$INSTALL" 'br_create_supports_slug' "install.sh checks br create --slug support"
+has "$INSTALL" 'lacks --slug' "install.sh upgrades br when --slug missing"
 
 if [[ "$failed" -eq 0 ]]; then
   printf '\n# %d tests passed\n' "$n"
