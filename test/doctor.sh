@@ -67,7 +67,15 @@ setup_path_with() {
 }
 
 # muxa/br/treehouse shims for doctor host section when real ones absent from trimmed path
-make_shim muxa
+cat > "$TMP/shim/muxa" <<'EOF'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+  printf '1.0.16 (test)\n'
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "$TMP/shim/muxa"
 cat > "$TMP/shim/br" <<'EOF'
 #!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -98,10 +106,12 @@ import json, sys
 d = json.load(sys.stdin)
 assert d["host"]["python3"]["ok"] is True
 assert d["host"]["python3"]["path"]
+assert d["host"]["muxa"]["ok"] is True
+assert d["host"]["muxa"]["version_ok"] is True
 '; then
   ok "doctor JSON has python3.ok=true with path"
 else
-  fail "doctor JSON python3 (out=$out)"
+  fail "doctor JSON python3/muxa version (out=$out)"
 fi
 
 # Worker matrix: none installed
@@ -258,6 +268,35 @@ assert r["source"] == "shipped"
   ok "agent installed → shipped defaults unchanged"
 else
   fail "agent installed keeps shipped defaults"
+fi
+
+# muxa version mismatch → exit 2 and version_ok=false
+cat > "$TMP/shim/muxa" <<'EOF'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+  printf '1.0.15 (old)\n'
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "$TMP/shim/muxa"
+setup_path_with agent
+out="$("$CP" doctor --json 2>"$TMP/err.muxa")" || rc=$?
+rc=${rc:-0}
+if [[ "$rc" -eq 2 ]]; then
+  ok "doctor exit 2 when muxa version mismatches pin"
+else
+  fail "doctor exit 2 when muxa version mismatches pin (rc=$rc)"
+fi
+if printf '%s\n' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["host"]["muxa"]["version_ok"] is False
+assert any(m["what"] == "muxa 1.0.16" for m in d["missing"])
+'; then
+  ok "doctor JSON reports muxa version mismatch"
+else
+  fail "doctor JSON muxa version mismatch (out=$out)"
 fi
 
 if [[ "$failed" -ne 0 ]]; then
