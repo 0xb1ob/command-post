@@ -43,10 +43,11 @@ Evidence: command-post-gv7 / ethereum-staking-api #352.
 
 ## br list verification cap
 
-`br list --json` returns at most 50 rows unless `--limit 0`. Queries that
-**verify** state (membership, existence, audit) must pass `--limit 0`; browsing
-an open backlog under 50 may omit it. A round count of 50 is the tell. Fix
-tracked: [command-post#74](https://github.com/0xb1ob/command-post/issues/74).
+br 0.2.19 default `--limit` is unlimited; older br defaulted to 50. Verification
+paths in `bin/cp` pass `--limit 0` explicitly. When auditing manually, pass
+`--limit 0` if the result decides membership or existence; `--limit 50` caps
+at 50 and sets `has_more`. Fix tracked:
+[command-post#74](https://github.com/0xb1ob/command-post/issues/74).
 
 ## Promote-not-spawn and occupancy
 

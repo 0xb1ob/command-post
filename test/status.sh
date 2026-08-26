@@ -82,20 +82,20 @@ cat > "$TMP/broker.json" <<'EOF'
 EOF
 
 cat > "$TMP/br-list.json" <<'EOF'
-[
+{"issues":[
   {"id":"job-a","title":"Add widget","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-24T16:00:00Z","labels":["project:demo","delivery:pr","kind:ship"]},
   {"id":"job-b","title":"Fix widget","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T15:00:00Z","labels":["project:demo","delivery:pr","kind:ship"]},
   {"id":"job-c","title":"Worktree-joined widget","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-24T14:00:00Z","labels":["project:demo","delivery:local","kind:ship"]},
   {"id":"command-post-tst1","title":"Branch-joined widget","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T13:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-ghost","title":"Ghost-owning widget","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T12:00:00Z","labels":["project:demo"]},
   {"id":"job-orphan","title":"Orphaned widget","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T11:00:00Z","labels":["project:demo","kind:research"]}
-]
+],"total":6,"limit":0,"offset":0,"has_more":false}
 EOF
 
 cat > "$TMP/br-list-closed.json" <<'EOF'
-[
+{"issues":[
   {"id":"job-closed","title":"Shipped widget","status":"closed","priority":2,"issue_type":"task","updated_at":"2026-08-24T10:00:00Z","labels":["project:demo","delivery:pr"]}
-]
+],"total":1,"limit":0,"offset":0,"has_more":false}
 EOF
 
 cat > "$TMP/jobs.tsv" <<EOF
@@ -113,6 +113,10 @@ cp "$TMP/jobs.tsv" "$CP_JOBS_FILE"
 cat > "$TMP/br-list-stub.sh" <<EOF
 #!/bin/sh
 set -eu
+case "\$*" in
+  *"--limit 0"*) ;;
+  *) echo "stub: missing --limit 0" >&2; exit 2 ;;
+esac
 case "\$*" in
   *"-s closed"*) cat "$TMP/br-list-closed.json" ;;
   *) cat "$TMP/br-list.json" ;;
@@ -315,6 +319,110 @@ assert n2["drawing"] is False, n2
 expect_rc_msg 0 '"br_id": "job-a"' "BR_LIST_CMD serves the broad open/in_progress list" \
   "$CP" status --json
 
+# --- br list envelope + --limit 0 + bare-array backward compat -----------
+cat > "$TMP/br-bare-stub.sh" <<'STUB'
+#!/bin/sh
+case "$*" in *"--limit 0"*) ;; *) exit 2 ;; esac
+printf '%s\n' '[{"id":"bare-only","title":"Legacy bare array","status":"open","updated_at":"2026-08-24T16:00:00Z","labels":["project:demo"]}]'
+STUB
+chmod +x "$TMP/br-bare-stub.sh"
+BARE_TMP="$TMP/bare"
+mkdir -p "$BARE_TMP/wt"
+cat > "$BARE_TMP/who.json" <<EOF
+[{"name":"bare-worker","id":"b1","parent":null,"kind":"cursor","state":"busy","pane":"%1","session":null,"cwd":"$BARE_TMP/wt"}]
+EOF
+cat > "$BARE_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+printf '#job\tworker\tworktree\tbranch\nbare-only\tbare-worker\t%s/wt\tbare-only\n' "$BARE_TMP" > "$BARE_TMP/jobs.tsv"
+BARE_JSON="$(
+  CP_JOBS_FILE="$BARE_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $BARE_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $BARE_TMP/broker.json" \
+  BR_LIST_CMD="$TMP/br-bare-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --json
+)"
+if printf '%s' "$BARE_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "bare-worker")
+assert n["br_id"] == "bare-only", n
+assert n["title"] == "Legacy bare array", n
+'; then
+  ok "br list normalize: bare array still works"
+else
+  fail "br list normalize: bare array still works"
+fi
+
+# --- >50 closed envelope: --limit 0 path finds issue beyond index 50 -------
+MANY_TMP="$TMP/many-closed"
+mkdir -p "$MANY_TMP/wt-deep"
+python3 - "$MANY_TMP/br-list-closed.json" <<'PY'
+import json, sys, pathlib
+out = []
+for i in range(1, 52):
+    out.append({
+        "id": f"job-closed-{i}",
+        "title": f"Closed filler {i}",
+        "status": "closed",
+        "priority": 2,
+        "issue_type": "task",
+        "updated_at": "2026-08-24T10:00:00Z",
+        "labels": ["project:demo"],
+    })
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "issues": out, "total": 51, "limit": 0, "offset": 0, "has_more": False,
+}))
+PY
+cat > "$MANY_TMP/who.json" <<EOF
+[
+  {"name":"root-pane","id":"r1","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"$TMP/home"},
+  {"name":"deep-closer","id":"w1","parent":"root-pane","kind":"cursor","state":"busy","pane":"%2","session":null,"cwd":"$MANY_TMP/wt-deep"}
+]
+EOF
+cat > "$MANY_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+printf '{"issues":[],"total":0,"limit":0,"offset":0,"has_more":false}\n' > "$MANY_TMP/br-list-open.json"
+cat > "$MANY_TMP/jobs.tsv" <<EOF
+#job	worker	worktree	branch
+job-closed-51	deep-closer	$MANY_TMP/wt-deep	job-closed-51
+EOF
+cat > "$MANY_TMP/br-list-stub.sh" <<EOF
+#!/bin/sh
+set -eu
+case "\$*" in
+  *"--limit 0"*) ;;
+  *) echo "stub: missing --limit 0" >&2; exit 2 ;;
+esac
+case "\$*" in
+  *"-s closed"*) cat "$MANY_TMP/br-list-closed.json" ;;
+  *) cat "$MANY_TMP/br-list-open.json" ;;
+esac
+EOF
+chmod +x "$MANY_TMP/br-list-stub.sh"
+MANY_JSON="$(
+  CP_JOBS_FILE="$MANY_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $MANY_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $MANY_TMP/broker.json" \
+  BR_LIST_CMD="$MANY_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --json
+)"
+if printf '%s' "$MANY_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+n = next(x for x in d["nodes"] if x["id"] == "deep-closer")
+assert n["br_id"] == "job-closed-51", n
+assert n["br_status"] == "closed", n
+assert n["phase"] == "done", n
+'; then
+  ok "br list: >50 closed envelope finds issue 51 with --limit 0"
+else
+  fail "br list: >50 closed envelope finds issue 51 with --limit 0"
+fi
+
 # --- purity: read-only, no mutation -------------------------------------
 BEFORE_JOBS="$(cat "$CP_JOBS_FILE")"
 run_status >/dev/null
@@ -353,7 +461,7 @@ assert len(d["nodes"]) > 0
 EMPTY_TMP="$TMP/empty"
 mkdir -p "$EMPTY_TMP"
 printf '[]\n' > "$EMPTY_TMP/who.json"
-printf '[]\n' > "$EMPTY_TMP/br-list.json"
+printf '{"issues":[],"total":0,"limit":0,"offset":0,"has_more":false}\n' > "$EMPTY_TMP/br-list.json"
 printf '#job\tworker\tworktree\tbranch\n' > "$EMPTY_TMP/jobs.tsv"
 cat > "$EMPTY_TMP/br-list-stub.sh" <<EOF
 #!/bin/sh
@@ -391,9 +499,9 @@ cat > "$TABLE_TMP/broker.json" <<'EOF'
 {"ok":true,"pid":123,"queued":2,"done":5,"failed":0,"socket":"/tmp/fake.sock","drawing":["%2","%999"]}
 EOF
 cat > "$TABLE_TMP/br-list.json" <<'EOF'
-[
+{"issues":[
   {"id":"job-a","title":"Add widget","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T16:00:00Z","labels":["project:demo","delivery:pr","kind:ship"]}
-]
+],"total":1,"limit":0,"offset":0,"has_more":false}
 EOF
 cat > "$TABLE_TMP/jobs.tsv" <<EOF
 #job	worker	worktree	branch
@@ -431,7 +539,7 @@ EOF
 cat > "$QUIET_TMP/broker.json" <<'EOF'
 {"ok":true,"pid":1,"socket":"/tmp/fake.sock","drawing":[]}
 EOF
-printf '[]\n' > "$QUIET_TMP/br-list.json"
+printf '{"issues":[],"total":0,"limit":0,"offset":0,"has_more":false}\n' > "$QUIET_TMP/br-list.json"
 printf '#job\tworker\tworktree\tbranch\n' > "$QUIET_TMP/jobs.tsv"
 cat > "$QUIET_TMP/br-list-stub.sh" <<EOF
 #!/bin/sh
@@ -578,10 +686,10 @@ cat > "$TIME_TMP/broker.json" <<'EOF'
 {"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
 EOF
 cat > "$TIME_TMP/br-list.json" <<'EOF'
-[
+{"issues":[
   {"id":"job-stamped","title":"Stamped job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-legacy","title":"Legacy job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]}
-]
+],"total":2,"limit":0,"offset":0,"has_more":false}
 EOF
 cat > "$TIME_TMP/jobs.tsv" <<EOF
 #job	worker	worktree	branch
@@ -672,13 +780,13 @@ cat > "$STALL_TMP/broker.json" <<'EOF'
 {"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
 EOF
 cat > "$STALL_TMP/br-list.json" <<'EOF'
-[
+{"issues":[
   {"id":"job-stalled","title":"Stalled job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-fresh","title":"Fresh idle job","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-legacy","title":"Legacy idle job","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-recent","title":"Recent idle job","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]},
   {"id":"job-held","title":"Held after report","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-20T08:00:00Z","labels":["project:demo","delivery:pr"]}
-]
+],"total":5,"limit":0,"offset":0,"has_more":false}
 EOF
 cat > "$STALL_TMP/jobs.tsv" <<EOF
 #job	worker	worktree	branch
