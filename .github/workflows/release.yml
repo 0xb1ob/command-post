@@ -10,11 +10,10 @@ on:
         description: Existing tag to build and attach assets to
         required: true
 
-permissions:
-  contents: write
-
 jobs:
   build:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +60,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
