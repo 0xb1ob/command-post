@@ -407,7 +407,7 @@ br create "<job title>" -t task -p 2 \
 ```
 
 Ad-hoc (no GitHub issue): same without `--external-ref`, add `-d "<description>"`.
-`--slug` needs current `br` ([why](reports/br-slug-install.md)).
+`--slug` is supported on br 0.2.19+ ([why](reports/br-slug-install.md)); install pins 0.5.2 — migrate schema before expecting `bin/cp status` to work.
 Use the returned id everywhere below. Notes: `br update <id> --notes "…"`. Comments:
 `br comments add <id> "…"`.
 
@@ -435,8 +435,8 @@ on the br issue (comments). Do not keep a parallel job journal.
 
 ### Job history (closed issues)
 
-Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json` (optional `-l project:<name>`).
-**Verify, don't browse:** pass `--limit 0` when the result decides membership or existence; `--limit 50` caps at 50 ([why](reports/operating-knowledge.md#br-list-verification-cap)).
+Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json`.
+**Verify, don't browse:** pass `--limit 0` when the result decides membership or existence; `--limit 50` caps at 50 ([why](reports/operating-knowledge.md#br-list-verification-cap)). **br 0.5.x:** pinned install + migrate-schema + JSON errors on stdout — [reports/br-slug-install.md](reports/br-slug-install.md).
 
 ## Memory
 

@@ -70,6 +70,10 @@ setup_path_with() {
 make_shim muxa
 cat > "$TMP/shim/br" <<'EOF'
 #!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'br 0.5.2\n'
+  exit 0
+fi
 if [ "$1" = "create" ] && [ "$2" = "--help" ]; then
   printf '      --slug <SLUG>\n'
   exit 0

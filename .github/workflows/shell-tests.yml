@@ -14,13 +14,15 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install br
+      - name: Install br 0.5.2
         run: |
           mkdir -p "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh" \
-            | bash -s -- --dest "$HOME/.local/bin" --skip-skills --quiet
+            | bash -s -- --dest "$HOME/.local/bin" --skip-skills --quiet --version v0.5.2
           br --version
+          export BR052="$HOME/.local/bin/br"
+          echo "BR052=$BR052" >> "$GITHUB_ENV"
 
       - name: Run test/*.sh
         run: |

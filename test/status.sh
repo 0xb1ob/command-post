@@ -319,6 +319,28 @@ assert n2["drawing"] is False, n2
 expect_rc_msg 0 '"br_id": "job-a"' "BR_LIST_CMD serves the broad open/in_progress list" \
   "$CP" status --json
 
+# --- SCHEMA_MISMATCH stdout must fail-closed (not "envelope missing issues") ---
+cat > "$TMP/br-schema-mismatch.json" <<'EOF'
+{"error":{"code":"SCHEMA_MISMATCH","message":"expected 17, found 16","context":{"expected":17,"found":16}}}
+EOF
+cat > "$TMP/br-mismatch-stub.sh" <<EOF
+#!/bin/sh
+exec cat "$TMP/br-schema-mismatch.json"
+EOF
+chmod +x "$TMP/br-mismatch-stub.sh"
+MISMATCH_TMP="$TMP/mismatch"
+mkdir -p "$MISMATCH_TMP"
+printf '[]\n' > "$MISMATCH_TMP/who.json"
+printf '{"ok":false}\n' > "$MISMATCH_TMP/broker.json"
+printf '#job\tworker\tworktree\tbranch\n' > "$MISMATCH_TMP/jobs.tsv"
+expect_rc_msg 1 SCHEMA_MISMATCH "SCHEMA_MISMATCH stub fails status closed" \
+  env CP_JOBS_FILE="$MISMATCH_TMP/jobs.tsv" \
+      MUXA_WHO_CMD="cat $MISMATCH_TMP/who.json" \
+      MUXA_BROKER_CMD="cat $MISMATCH_TMP/broker.json" \
+      BR_LIST_CMD="$TMP/br-mismatch-stub.sh" \
+      CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+      "$CP" status --json
+
 # --- br list envelope + --limit 0 + bare-array backward compat -----------
 cat > "$TMP/br-bare-stub.sh" <<'STUB'
 #!/bin/sh

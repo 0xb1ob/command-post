@@ -3,6 +3,14 @@
 # Run from the command-post repo: test/artifact.sh
 set -euo pipefail
 
+# BR: binary for fresh-init tests (artifact.sh, gate.sh). Default = PATH `br`.
+# Override to exercise 0.5.2 without swapping PATH:
+#   BR=$HOME/.local/bin/br-0.5.2.parked test/artifact.sh
+BR="${BR:-br}"
+command -v "$BR" >/dev/null || { echo "br not found (set BR to an executable)" >&2; exit 2; }
+BR_BIN="$(command -v "$BR")"
+export PATH="$(dirname "$BR_BIN"):$PATH"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP="$ROOT/bin/cp"
 failed=0
@@ -31,7 +39,7 @@ expect_exit() {
   fi
 }
 
-if ! command -v br >/dev/null 2>&1; then
+if ! command -v "$BR" >/dev/null 2>&1; then
   printf 'br not on PATH (needed for artifact tests)\n' >&2
   exit 2
 fi
@@ -82,10 +90,10 @@ fi
 # Isolated tracker under CP_HOME only (never repo HOME, never this worktree).
 (
   cd "$CP_HOME"
-  br init --prefix t >/dev/null
+  "$BR" init --prefix t >/dev/null
 )
 DB="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$CP_HOME/.beads/beads.db")"
-ID="$(br --db "$DB" create "artifact-test" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID="$("$BR" --db "$DB" create "artifact-test" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
 # Special-character payload; unique token must never appear on add stdout.
 printf 'hello `ticks` and "quotes" and $HOME and $(echo hi)\nline two\n' > "$TMP/src.md"
@@ -121,7 +129,7 @@ fi
 # Newest artifact:v1 wins; ordinary comments are ignored.
 printf 'revision-two payload\n' > "$TMP/src2.md"
 "$CP" artifact add "$ID" "$TMP/src2.md" >/dev/null
-br --db "$DB" comments add "$ID" "ordinary note, not an artifact" -q >/dev/null
+"$BR" --db "$DB" comments add "$ID" "ordinary note, not an artifact" -q >/dev/null
 "$CP" artifact get "$ID" > "$TMP/got2.md"
 if cmp -s "$TMP/src2.md" "$TMP/got2.md"; then
   ok "get returns the newest artifact:v1 comment"
@@ -130,7 +138,7 @@ else
 fi
 
 # No artifact on a fresh issue
-ID2="$(br --db "$DB" create "no-artifact" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID2="$("$BR" --db "$DB" create "no-artifact" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 rc=0
 out="$("$CP" artifact get "$ID2" 2>/dev/null)" || rc=$?
 if [[ "$rc" -eq 1 && -z "$out" ]]; then

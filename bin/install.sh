@@ -112,22 +112,46 @@ ensure_muxa_hooks() {
   done
 }
 
-br_create_supports_slug() {
-  command -v br >/dev/null 2>&1 \
-    && br create --help 2>/dev/null | grep -q -- '--slug <SLUG>'
+BR_VERSION_PIN="v0.5.2"
+BR_VERSION="${BR_VERSION_PIN#v}"
+
+br_version_matches() {
+  command -v br >/dev/null 2>&1 || return 1
+  [[ "$(br --version 2>/dev/null)" == "br ${BR_VERSION}" ]]
+}
+
+br_home_db() {
+  printf '%s/.beads/beads.db' "$ROOT"
+}
+
+br_home_list_json_ok() {
+  local db
+  db="$(br_home_db)"
+  [[ -f "$db" ]] || return 0
+  br --db "$db" list --json >/dev/null 2>&1
+}
+
+br_installed_ok() {
+  br_version_matches && br_home_list_json_ok
 }
 
 install_br() {
-  if command -v br >/dev/null 2>&1 && br_create_supports_slug; then
+  if br_installed_ok; then
     log "br: already installed ($(br --version))"
     return 0
   fi
   if command -v br >/dev/null 2>&1; then
-    log "br: upgrading ($(br --version) lacks --slug; AGENTS.md intake requires it)"
+    log "br: installing pinned ${BR_VERSION_PIN} (found $(br --version))"
   else
-    log "br: installing from beads_rust"
+    log "br: installing beads_rust ${BR_VERSION_PIN}"
   fi
-  curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet
+  curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet --version "$BR_VERSION_PIN"
+  export PATH="$BIN:$PATH"
+  local db
+  db="$(br_home_db)"
+  if [[ -f "$db" ]] && ! br --db "$db" list --json >/dev/null 2>&1; then
+    die "br ${BR_VERSION_PIN} installed but home tracker schema mismatch — run: br --db $(printf %q "$db") doctor migrate-schema plan"
+  fi
 }
 
 install_treehouse() {
