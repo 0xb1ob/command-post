@@ -9,6 +9,7 @@ import (
 )
 
 func CmdDoctor(e *Env, args []string) error {
+	loadJobModelEnv()
 	jsonOut := false
 	for _, a := range args {
 		switch a {
@@ -84,6 +85,7 @@ func CmdDoctor(e *Env, args []string) error {
 		}
 		fmt.Println()
 	}
+	printDoctorModels(e, clis)
 	if len(forbid) > 0 {
 		fmt.Printf("\nForbid: %s\n", strings.Join(forbid, " "))
 	}
@@ -149,7 +151,8 @@ func doctorJSON(e *Env, hostTools []string, brSlugOK, brVersionOK, muxaVersionOK
 		roles[role] = map[string]any{
 			"argv": r.Argv, "argv0": r.Argv0, "source": r.Source,
 			"installed": p != "", "path": p,
-			"forbidden": cliIsForbidden(forbid, r.Argv0),
+			"forbidden":    cliIsForbidden(forbid, r.Argv0),
+			"model_status": modelStatus(e, r.Argv0, argvModel(r.Argv)),
 		}
 	}
 	var missing []map[string]any
@@ -209,6 +212,7 @@ func doctorJSON(e *Env, hostTools []string, brSlugOK, brVersionOK, muxaVersionOK
 	out := map[string]any{
 		"home": e.Home, "host": host, "clis": clis,
 		"roles": roles, "forbid": forbid, "missing": missing,
+		"models":     doctorModelsJSON(e),
 		"cp_version": Version, "cp_version_ok": cpVersionMatches(),
 	}
 	b, _ := json.Marshal(out)

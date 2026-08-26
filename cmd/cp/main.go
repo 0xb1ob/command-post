@@ -39,12 +39,14 @@ func main() {
 		runErr = cp.CmdTeardown(e, args)
 	case "status":
 		runErr = cp.CmdStatus(e, args)
+	case "models":
+		runErr = cp.CmdModels(e, args)
 	case "version":
 		fmt.Printf("cp %s (%s)\n", cp.Version, cp.Commit)
 	case "-h", "--help":
 		cp.PrintUsageMain()
 	default:
-		cp.DieUsage("unknown command %s (want: check, lease, jobs, artifact, gate, dispatch, doctor, teardown, or status)", cmd)
+		cp.DieUsage("unknown command %s (want: check, lease, jobs, artifact, gate, dispatch, doctor, teardown, status, or models)", cmd)
 	}
 	if runErr != nil {
 		cp.HandleErr(runErr)
