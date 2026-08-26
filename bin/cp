@@ -3848,12 +3848,15 @@ cmd_doctor() {
   [[ $# -eq 0 ]] || die_doctor_usage "doctor takes no arguments"
 
   local -a host_tools=(python3 muxa br treehouse git tmux)
-  local br_slug_ok=0 br_version_ok=0 br_tracker_ok=0
+  local br_slug_ok=0 br_version_ok=0 br_tracker_ok=0 muxa_version_ok=0
   if br_create_supports_slug; then
     br_slug_ok=1
   fi
   if br_version_matches; then
     br_version_ok=1
+  fi
+  if muxa_version_matches; then
+    muxa_version_ok=1
   fi
   if [[ -f "$CP_HOME/.beads/beads.db" ]]; then
     if br --db "$CP_HOME/.beads/beads.db" list --json >/dev/null 2>&1; then
@@ -3890,8 +3893,10 @@ cmd_doctor() {
     export CP_DOCTOR_ROLES_JSON
     CP_DOCTOR_ROLES_JSON="$(doctor_roles_json)"
     export CP_DOCTOR_BR_PINNED_VERSION="$(cp_br_pinned_version)"
+    export CP_DOCTOR_MUXA_PINNED_VERSION="$(cp_muxa_pinned_version)"
     export CP_DOCTOR_BR_SLUG_OK="$br_slug_ok"
     export CP_DOCTOR_BR_VERSION_OK="$br_version_ok"
+    export CP_DOCTOR_MUXA_VERSION_OK="$muxa_version_ok"
     export CP_DOCTOR_BR_TRACKER_OK="$br_tracker_ok"
     python3 - "$ROOT" "$CP_HOME" "$host_missing" <<'PY'
 import json, os, subprocess, sys
@@ -3915,6 +3920,8 @@ host = {}
 for ht in host_tools:
     p = path_of(ht)
     host[ht] = {"ok": p is not None, "path": p or ""}
+if host.get("muxa", {}).get("ok"):
+    host["muxa"]["version_ok"] = os.environ.get("CP_DOCTOR_MUXA_VERSION_OK") == "1"
 if host.get("br", {}).get("ok"):
     host["br"]["create_slug"] = os.environ.get("CP_DOCTOR_BR_SLUG_OK") == "1"
     host["br"]["version_ok"] = os.environ.get("CP_DOCTOR_BR_VERSION_OK") == "1"
@@ -3967,6 +3974,13 @@ missing = []
 for ht, info in host.items():
     if not info["ok"]:
         missing.append({"what": ht, "kind": "host", "fix": f"install {ht} (bin/install.sh for muxa, br, treehouse)"})
+if host.get("muxa", {}).get("ok") and not host["muxa"].get("version_ok"):
+    pinned = os.environ.get("CP_DOCTOR_MUXA_PINNED_VERSION", "")
+    missing.append({
+        "what": f"muxa {pinned}" if pinned else "muxa pinned version",
+        "kind": "host-version",
+        "fix": f"run bin/install.sh (pins muxa {pinned})" if pinned else "run bin/install.sh",
+    })
 if host.get("br", {}).get("ok") and not host["br"].get("create_slug"):
     missing.append({
         "what": "br --slug",
@@ -4014,7 +4028,7 @@ out = {
 }
 print(json.dumps(out))
 PY
-    exit $(( host_missing || br_slug_ok == 0 || br_version_ok == 0 || br_tracker_ok == 0 ? 2 : 0 ))
+    exit $(( host_missing || muxa_version_ok == 0 || br_slug_ok == 0 || br_version_ok == 0 || br_tracker_ok == 0 ? 2 : 0 ))
   fi
 
   printf 'command-post home: %s\n' "$CP_HOME"
@@ -4059,6 +4073,11 @@ PY
     printf '\n[cp] error: one or more host tools are missing — run bin/install.sh\n' >&2
     exit 2
   fi
+  if [[ "$muxa_version_ok" -eq 0 ]]; then
+    printf '\n[cp] error: muxa is not %s — run bin/install.sh (pins muxa %s)\n' \
+      "$(cp_muxa_pinned_version)" "$(cp_muxa_pinned_version)" >&2
+    exit 2
+  fi
   if [[ "$br_slug_ok" -eq 0 ]]; then
     printf '\n[cp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)\n' >&2
     exit 2
@@ -4078,6 +4097,25 @@ PY
 br_create_supports_slug() {
   command -v br >/dev/null 2>&1 \
     && br create --help 2>/dev/null | grep -q -- '--slug <SLUG>'
+}
+
+# Pinned muxa release — single source: bin/install.sh MUXA_VERSION_PIN.
+cp_muxa_pinned_version() {
+  if [[ -n "${CP_MUXA_VERSION_PIN:-}" ]]; then
+    printf '%s' "$CP_MUXA_VERSION_PIN"
+    return 0
+  fi
+  local pin
+  pin="$(sed -n 's/^MUXA_VERSION_PIN="\(.*\)"/\1/p' "$ROOT/bin/install.sh" | head -1)"
+  CP_MUXA_VERSION_PIN="$pin"
+  printf '%s' "$pin"
+}
+
+muxa_version_matches() {
+  command -v muxa >/dev/null 2>&1 || return 1
+  local ver
+  ver="$(muxa version 2>/dev/null | awk '{print $1}')"
+  [[ "$ver" == "$(cp_muxa_pinned_version)" ]]
 }
 
 # Pinned br release — single source: bin/install.sh BR_VERSION_PIN.

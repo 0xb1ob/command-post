@@ -63,6 +63,16 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
 
 has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
 has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
+has "$INSTALL" 'MUXA_VERSION_PIN="1.0.16"' \
+  "install.sh declares muxa pin"
+has "$INSTALL" 'MUXA_BROKER_VERSION="$MUXA_VERSION_PIN"' \
+  "install.sh passes pinned muxa version to upstream installer"
+has "$INSTALL" 'muxa/${MUXA_VERSION_PIN}/install.sh' \
+  "install.sh fetches muxa installer from pinned tag"
+has "$INSTALL" 'muxa_version_matches' \
+  "install.sh gates muxa install on version match"
+lacks "$INSTALL" '0xb1ob/muxa/main/install.sh' \
+  "install.sh default muxa URL is not main"
 has "$INSTALL" 'BR_VERSION_PIN="v0.5.2"' \
   "install.sh declares beads_rust pin"
 has "$INSTALL" '--version "$BR_VERSION_PIN"' \

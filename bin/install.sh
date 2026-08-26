@@ -10,7 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
-MUXA_INSTALL_URL="${MUXA_INSTALL_URL:-https://raw.githubusercontent.com/0xb1ob/muxa/main/install.sh}"
+MUXA_VERSION_PIN="1.0.16"
+BR_VERSION_PIN="v0.5.2"
+BR_VERSION="${BR_VERSION_PIN#v}"
+
+MUXA_INSTALL_URL="${MUXA_INSTALL_URL:-https://raw.githubusercontent.com/0xb1ob/muxa/${MUXA_VERSION_PIN}/install.sh}"
 BR_INSTALL_URL="${BR_INSTALL_URL:-https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh}"
 TREEHOUSE_INSTALL_URL="${TREEHOUSE_INSTALL_URL:-https://kunchenguid.github.io/treehouse/install.sh}"
 
@@ -47,11 +51,27 @@ require_prereqs() {
   fi
 }
 
+muxa_version_matches() {
+  command -v muxa >/dev/null 2>&1 || return 1
+  local ver
+  ver="$(muxa version 2>/dev/null | awk '{print $1}')"
+  [[ "$ver" == "$MUXA_VERSION_PIN" ]]
+}
+
+muxa_installed_ok() {
+  muxa_version_matches
+}
+
 install_muxa() {
+  if muxa_installed_ok; then
+    log "muxa: already installed ($(muxa version 2>/dev/null | head -1))"
+    verify_muxa
+    return 0
+  fi
   if command -v muxa >/dev/null 2>&1; then
-    log "muxa: $(muxa version 2>/dev/null || echo installed) — refreshing install"
+    log "muxa: installing pinned ${MUXA_VERSION_PIN} (found $(muxa version 2>/dev/null | head -1))"
   else
-    log "muxa: installing from $MUXA_INSTALL_URL"
+    log "muxa: installing muxa ${MUXA_VERSION_PIN} from $MUXA_INSTALL_URL"
   fi
 
   # cwd matters. muxa is a Go project, and any go command in its installer
@@ -62,7 +82,7 @@ install_muxa() {
   # invokes go, and must not gain a go.mod — muxa ships a release binary.
   local scratch rc=0
   scratch="$(mktemp -d)"
-  (cd "$scratch" && curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" bash) || rc=$?
+  (cd "$scratch" && curl -fsSL "$MUXA_INSTALL_URL" | MUXA_BIN_DIR="$BIN" MUXA_BROKER_VERSION="$MUXA_VERSION_PIN" bash) || rc=$?
   rmdir "$scratch" 2>/dev/null || true
   if [[ "$rc" -eq 0 ]]; then
     verify_muxa
@@ -89,6 +109,10 @@ verify_muxa() {
     return 0
   }
   log "muxa: $("$muxa_bin" version 2>/dev/null || echo installed) -> $muxa_bin"
+  if ! muxa_version_matches; then
+    warn "muxa: version mismatch (want ${MUXA_VERSION_PIN}, got $("$muxa_bin" version 2>/dev/null | awk '{print $1}'))"
+    return 1
+  fi
   if [[ -n "${TMUX:-}" || -n "${MUXA_TMUX_SOCKET:-}" ]]; then
     if ! "$muxa_bin" broker status >/dev/null 2>&1; then
       warn "muxa broker: not running — start with: muxa broker start"
@@ -111,9 +135,6 @@ ensure_muxa_hooks() {
     fi
   done
 }
-
-BR_VERSION_PIN="v0.5.2"
-BR_VERSION="${BR_VERSION_PIN#v}"
 
 br_version_matches() {
   command -v br >/dev/null 2>&1 || return 1
