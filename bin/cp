@@ -3852,7 +3852,7 @@ cmd_doctor() {
   if br_create_supports_slug; then
     br_slug_ok=1
   fi
-  if command -v br >/dev/null 2>&1 && br --version 2>/dev/null | grep -q '0.5.2'; then
+  if br_version_matches; then
     br_version_ok=1
   fi
   if [[ -f "$CP_HOME/.beads/beads.db" ]]; then
@@ -3889,6 +3889,7 @@ cmd_doctor() {
     export CP_DOCTOR_ROOT="$ROOT" CP_DOCTOR_HOME="$CP_HOME"
     export CP_DOCTOR_ROLES_JSON
     CP_DOCTOR_ROLES_JSON="$(doctor_roles_json)"
+    export CP_DOCTOR_BR_PINNED_VERSION="$(cp_br_pinned_version)"
     export CP_DOCTOR_BR_SLUG_OK="$br_slug_ok"
     export CP_DOCTOR_BR_VERSION_OK="$br_version_ok"
     export CP_DOCTOR_BR_TRACKER_OK="$br_tracker_ok"
@@ -3973,10 +3974,11 @@ if host.get("br", {}).get("ok") and not host["br"].get("create_slug"):
         "fix": "run bin/install.sh (AGENTS.md intake requires --slug on br create)",
     })
 if host.get("br", {}).get("ok") and not host["br"].get("version_ok"):
+    pinned = os.environ.get("CP_DOCTOR_BR_PINNED_VERSION", "")
     missing.append({
-        "what": "br 0.5.2",
+        "what": f"br {pinned}" if pinned else "br pinned version",
         "kind": "host-version",
-        "fix": "run bin/install.sh (pins beads_rust v0.5.2)",
+        "fix": f"run bin/install.sh (pins beads_rust v{pinned})" if pinned else "run bin/install.sh",
     })
 if host.get("br", {}).get("ok") and not host["br"].get("tracker_ok"):
     missing.append({
@@ -4062,7 +4064,8 @@ PY
     exit 2
   fi
   if [[ "$br_version_ok" -eq 0 ]]; then
-    printf '\n[cp] error: br is not 0.5.2 — run bin/install.sh (pins beads_rust v0.5.2)\n' >&2
+    printf '\n[cp] error: br is not %s — run bin/install.sh (pins beads_rust v%s)\n' \
+      "$(cp_br_pinned_version)" "$(cp_br_pinned_version)" >&2
     exit 2
   fi
   if [[ "$br_tracker_ok" -eq 0 ]]; then
@@ -4075,6 +4078,23 @@ PY
 br_create_supports_slug() {
   command -v br >/dev/null 2>&1 \
     && br create --help 2>/dev/null | grep -q -- '--slug <SLUG>'
+}
+
+# Pinned br release — single source: bin/install.sh BR_VERSION_PIN.
+cp_br_pinned_version() {
+  if [[ -n "${CP_BR_VERSION_PIN:-}" ]]; then
+    printf '%s' "${CP_BR_VERSION_PIN#v}"
+    return 0
+  fi
+  local pin
+  pin="$(sed -n 's/^BR_VERSION_PIN="\(.*\)"/\1/p' "$ROOT/bin/install.sh" | head -1)"
+  CP_BR_VERSION_PIN="$pin"
+  printf '%s' "${pin#v}"
+}
+
+br_version_matches() {
+  command -v br >/dev/null 2>&1 || return 1
+  [[ "$(br --version 2>/dev/null)" == "br $(cp_br_pinned_version)" ]]
 }
 
 cmd_teardown() {

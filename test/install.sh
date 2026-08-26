@@ -63,8 +63,10 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
 
 has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
 has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
-has "$INSTALL" '--version v0.5.2' \
-  "install.sh pins beads_rust v0.5.2 (does not float to latest)"
+has "$INSTALL" 'BR_VERSION_PIN="v0.5.2"' \
+  "install.sh declares beads_rust pin"
+has "$INSTALL" '--version "$BR_VERSION_PIN"' \
+  "install.sh curl passes pinned version via BR_VERSION_PIN"
 has "$INSTALL" 'list --json' \
   "install.sh gates on br list --json against the home db, not --slug"
 has "$INSTALL" 'migrate-schema' \

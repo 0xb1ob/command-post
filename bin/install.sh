@@ -113,6 +113,12 @@ ensure_muxa_hooks() {
 }
 
 BR_VERSION_PIN="v0.5.2"
+BR_VERSION="${BR_VERSION_PIN#v}"
+
+br_version_matches() {
+  command -v br >/dev/null 2>&1 || return 1
+  [[ "$(br --version 2>/dev/null)" == "br ${BR_VERSION}" ]]
+}
 
 br_home_db() {
   printf '%s/.beads/beads.db' "$ROOT"
@@ -126,9 +132,7 @@ br_home_list_json_ok() {
 }
 
 br_installed_ok() {
-  command -v br >/dev/null 2>&1 \
-    && br --version 2>/dev/null | grep -q '0.5.2' \
-    && br_home_list_json_ok
+  br_version_matches && br_home_list_json_ok
 }
 
 install_br() {
@@ -141,7 +145,7 @@ install_br() {
   else
     log "br: installing beads_rust ${BR_VERSION_PIN}"
   fi
-  curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet --version v0.5.2
+  curl -fsSL "${BR_INSTALL_URL}?$(date +%s)" | bash -s -- --dest "$BIN" --skip-skills --quiet --version "$BR_VERSION_PIN"
   export PATH="$BIN:$PATH"
   local db
   db="$(br_home_db)"
