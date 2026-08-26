@@ -720,6 +720,30 @@ jobs_emit_row() {
   fi
 }
 
+# Parse one jobs.tsv data row. Tab is IFS whitespace in bash, so IFS=$'\t' read
+# collapses consecutive tabs and drops empty middle fields (#85).
+jobs_parse_row() {
+  local line="$1" parsed
+  parsed="$(printf '%s\n' "$line" | awk -F'\t' '{
+    for (i = 1; i <= 7; i++) {
+      if (i > 1) printf "\036"
+      printf "%s", (i <= NF ? $i : "")
+    }
+    printf "\n"
+  }')"
+  IFS=$'\036' read -r job worker worktree branch dispatched_at reported_at origin <<< "$parsed"
+}
+
+# Heal rows corrupted by the old IFS read: origin shifted into reported_at.
+jobs_heal_row_fields() {
+  if [[ -n "$reported_at" && -z "$origin" ]]; then
+    if ! [[ "$reported_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+      origin="$reported_at"
+      reported_at=""
+    fi
+  fi
+}
+
 validate_job_id() {
   local id="$1"
   if [[ ! "$id" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -868,7 +892,8 @@ jobs_rewrite() {
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue
       [[ "$line" == \#* ]] && continue
-      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at origin <<< "$line"
+      jobs_parse_row "$line"
+      jobs_heal_row_fields
       if [[ "$job" != "$target" ]]; then
         jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
         continue
@@ -901,7 +926,8 @@ jobs_stamp_reported() {
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue
       [[ "$line" == \#* ]] && continue
-      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at origin <<< "$line"
+      jobs_parse_row "$line"
+      jobs_heal_row_fields
       if [[ "$job" != "$target" ]]; then
         jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
         continue
