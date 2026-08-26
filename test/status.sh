@@ -918,6 +918,147 @@ else
   fail "stalled/held: html rendering includes both phases and glyphs"
 fi
 
+# --- origin filter + cross-origin blocker redaction (#73) -------------------
+ORIGIN_TMP="$TMP/origin"
+mkdir -p "$ORIGIN_TMP/wt-a" "$ORIGIN_TMP/wt-b"
+cat > "$ORIGIN_TMP/who.json" <<EOF
+[
+  {"name":"root-pane","id":"r1","parent":null,"kind":"claude","state":"busy","pane":"%1","session":null,"cwd":"$TMP/home"},
+  {"name":"worker-a","id":"w1","parent":"root-pane","kind":"cursor","state":"idle","pane":"%2","session":null,"cwd":"$ORIGIN_TMP/wt-a"},
+  {"name":"worker-b","id":"w2","parent":"root-pane","kind":"cursor","state":"busy","pane":"%3","session":null,"cwd":"$ORIGIN_TMP/wt-b"}
+]
+EOF
+cat > "$ORIGIN_TMP/broker.json" <<'EOF'
+{"ok":true,"pid":1,"queued":0,"done":0,"failed":0,"socket":"/tmp/fake.sock","drawing":[]}
+EOF
+cat > "$ORIGIN_TMP/br-list.json" <<'EOF'
+{"issues":[
+  {"id":"job-a","title":"Secret task alpha","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-24T16:00:00Z","labels":["project:demo","delivery:pr"]},
+  {"id":"job-b","title":"Blocker task beta","status":"in_progress","priority":2,"issue_type":"task","updated_at":"2026-08-24T15:00:00Z","labels":["project:demo","delivery:pr"]}
+],"total":2,"limit":0,"offset":0,"has_more":false}
+EOF
+cat > "$ORIGIN_TMP/br-blocked.json" <<'EOF'
+{"issues":[
+  {"id":"job-a","title":"Secret task alpha","status":"open","priority":2,"issue_type":"task","updated_at":"2026-08-24T16:00:00Z","labels":["project:demo"],"blocked_by_count":1,"blocked_by":["job-b"]}
+],"total":1,"limit":0,"offset":0,"has_more":false}
+EOF
+cat > "$ORIGIN_TMP/jobs.tsv" <<EOF
+#job	worker	worktree	branch	dispatched_at	reported_at	origin
+job-a	worker-a	$ORIGIN_TMP/wt-a	job-a	2026-08-24T16:00:00Z		origin-a
+job-b	worker-b	$ORIGIN_TMP/wt-b	job-b	2026-08-24T15:00:00Z		origin-b
+EOF
+cat > "$ORIGIN_TMP/br-list-stub.sh" <<EOF
+#!/bin/sh
+set -eu
+case "\$*" in
+  *"--limit 0"*) ;;
+  *) echo "stub: missing --limit 0" >&2; exit 2 ;;
+esac
+cat "$ORIGIN_TMP/br-list.json"
+EOF
+chmod +x "$ORIGIN_TMP/br-list-stub.sh"
+cat > "$ORIGIN_TMP/br-blocked-stub.sh" <<EOF
+#!/bin/sh
+set -eu
+case "\$*" in
+  *"--limit 0"*) ;;
+  *) echo "stub: missing --limit 0" >&2; exit 2 ;;
+esac
+cat "$ORIGIN_TMP/br-blocked.json"
+EOF
+chmod +x "$ORIGIN_TMP/br-blocked-stub.sh"
+
+ORIGIN_JSON="$(
+  CP_JOBS_FILE="$ORIGIN_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $ORIGIN_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $ORIGIN_TMP/broker.json" \
+  BR_LIST_CMD="$ORIGIN_TMP/br-list-stub.sh" \
+  BR_BLOCKED_CMD="$ORIGIN_TMP/br-blocked-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --origin origin-a --json
+)"
+
+assert_origin() {
+  local label="$1" script="$2"
+  if printf '%s' "$ORIGIN_JSON" | python3 -c "$script"; then
+    ok "$label"
+  else
+    fail "$label"
+  fi
+}
+
+assert_origin "origin filter: job-a present in --origin origin-a" '
+import json, sys
+d = json.load(sys.stdin)
+ids = {n.get("br_id") for n in d["nodes"]}
+aliases = {n["id"] for n in d["nodes"]}
+assert "job-a" in ids or "worker-a" in aliases, d["nodes"]
+'
+
+assert_origin "origin filter: job-b absent from --origin origin-a (id and title)" '
+import json, sys
+raw = json.dumps(json.load(sys.stdin))
+assert "job-b" not in raw, raw
+assert "Blocker task beta" not in raw, raw
+assert "worker-b" not in raw, raw
+'
+
+assert_origin "origin filter: cross-origin blocker redacted on job-a" '
+import json, sys
+d = json.load(sys.stdin)
+n = next((x for x in d["nodes"] if x.get("br_id") == "job-a"), None)
+assert n is not None, d["nodes"]
+assert n.get("phase") == "blocked", n
+blocked_by = n.get("blocked_by") or []
+assert blocked_by, n
+entry = blocked_by[0]
+assert not entry.get("id"), entry
+assert not entry.get("title"), entry
+'
+
+ORIGIN_TABLE="$(
+  CP_JOBS_FILE="$ORIGIN_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $ORIGIN_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $ORIGIN_TMP/broker.json" \
+  BR_LIST_CMD="$ORIGIN_TMP/br-list-stub.sh" \
+  BR_BLOCKED_CMD="$ORIGIN_TMP/br-blocked-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --origin origin-a
+)"
+if printf '%s\n' "$ORIGIN_TABLE" | python3 -c '
+import sys
+text = sys.stdin.read()
+assert "job-b" not in text, text
+assert "Blocker task beta" not in text, text
+assert "worker-b" not in text, text
+assert "blocked" in text.lower(), text
+'; then
+  ok "origin filter: human table hides cross-origin job and shows blocked"
+else
+  fail "origin filter: human table hides cross-origin job and shows blocked"
+fi
+
+# unscoped status unchanged: both jobs visible without --origin
+UNSCOPED_JSON="$(
+  CP_JOBS_FILE="$ORIGIN_TMP/jobs.tsv" \
+  MUXA_WHO_CMD="cat $ORIGIN_TMP/who.json" \
+  MUXA_BROKER_CMD="cat $ORIGIN_TMP/broker.json" \
+  BR_LIST_CMD="$ORIGIN_TMP/br-list-stub.sh" \
+  CP_STATUS_NOW="2026-08-24T16:10:00Z" \
+  "$CP" status --json
+)"
+if printf '%s' "$UNSCOPED_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ids = {n.get("br_id") for n in d["nodes"]}
+assert "job-a" in ids, ids
+assert "job-b" in ids, ids
+'; then
+  ok "origin filter: unscoped status still shows all origins"
+else
+  fail "origin filter: unscoped status still shows all origins"
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
   exit 1

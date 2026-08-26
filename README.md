@@ -62,7 +62,7 @@ worker.
 | `.claude/settings.json` | yes | Claude Code SessionStart → `scripts/muxa-hook.sh` |
 | `.cursor/hooks.json` | yes | Cursor sessionStart → `scripts/muxa-hook.sh` |
 | `data/` | **no** | `data/projects.md`, `data/routing.tsv`, `data/learnings.md`, `data/candidates.md`, `data/archive.md` |
-| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`: `#job`, `worker`, `worktree`, `branch`, optional `dispatched_at` stamped at dispatch); research artifacts (`state/artifacts/`) |
+| `state/` | **no** | Runtime jobs map (`state/jobs.tsv`: `#job`, `worker`, `worktree`, `branch`, optional `dispatched_at`, `reported_at`, `origin` stamped at dispatch); research artifacts (`state/artifacts/`) |
 | `projects/` | **no** | Cloned repos, one directory per name |
 | `.beads/` | **no** | Local `br` state (in-flight jobs + history) |
 | `.cursor/skills/`, `.claude/skills/`, `.agents/skills/` | **no** | Harness copies of `skills/` from `bin/install.sh` |

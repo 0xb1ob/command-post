@@ -9,7 +9,7 @@
 #   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
 #   bin/cp teardown ID
-#   bin/cp status [--json] [--html] [--serve [--port N]]
+#   bin/cp status [--json] [--html] [--serve [--port N]] [--origin ID]
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
@@ -94,7 +94,7 @@
 # never $PWD), or CP_HOME if set.
 # Test overrides (not for live dispatch): MUXA_WHO_CMD, MUXA_WHOAMI,
 # BR_SHOW_CMD, BR_DB, CP_JOBS_FILE, CP_GATE_CMD, MUXA_BROKER_CMD,
-# BR_LIST_CMD, CP_STATUS_NOW, CP_STATUS_STALL_SEC. dispatch/teardown call muxa
+# BR_LIST_CMD, BR_BLOCKED_CMD, CP_STATUS_NOW, CP_STATUS_STALL_SEC. dispatch/teardown call muxa
 # and treehouse on PATH so tests can shim them.
 set -euo pipefail
 
@@ -140,12 +140,12 @@ usage() {
   printf '       %s doctor [--json]\n' "$PROG" >&2
   printf '       %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       %s teardown ID\n' "$PROG" >&2
-  printf '       %s status [--json] [--html] [--serve [--port N]]\n' "$PROG" >&2
+  printf '       %s status [--json] [--html] [--serve [--port N]] [--origin ID]\n' "$PROG" >&2
   exit 2
 }
 
 usage_status() {
-  printf 'usage: %s status [--json] [--html] [--serve [--port N]]\n' "$PROG" >&2
+  printf 'usage: %s status [--json] [--html] [--serve [--port N]] [--origin ID]\n' "$PROG" >&2
   printf '\n' >&2
   printf 'Read-only fleet snapshot composed from muxa who --json, muxa broker\n' >&2
   printf 'status, state/jobs.tsv, and br list --json. No daemon, no new\n' >&2
@@ -153,13 +153,16 @@ usage_status() {
   printf 'Never calls tmux; never br show.\n' >&2
   printf '\n' >&2
   printf 'Test overrides (not for live use): MUXA_WHO_CMD, MUXA_BROKER_CMD,\n' >&2
-  printf 'MUXA_TAIL_CMD, BR_LIST_CMD, CP_JOBS_FILE, BR_DB, CP_STATUS_NOW,\n' >&2
+  printf 'MUXA_TAIL_CMD, BR_LIST_CMD, BR_BLOCKED_CMD, CP_JOBS_FILE, BR_DB, CP_STATUS_NOW,\n' >&2
   printf 'CP_STATUS_STALL_SEC.\n' >&2
   printf '\n' >&2
   printf 'Stdout (--json): {v, generated_at, home, broker, nodes[], edges[]}.\n' >&2
   printf 'Stdout (--html): self-contained HTML snapshot with the JSON embedded.\n' >&2
   printf 'Stdout (--serve): prints http://127.0.0.1:PORT/ then blocks (default 8765).\n' >&2
   printf 'Without flags: a human-readable table with a BROKER summary line.\n' >&2
+  printf '--origin ID: same tables filtered to that jobs.tsv origin only;\n' >&2
+  printf 'cross-origin br dep blockers render blocked without naming the blocker\n' >&2
+  printf '(see reports/origin-scoping.md).\n' >&2
 }
 
 usage_dispatch() {
@@ -585,7 +588,7 @@ jobs_ensure() {
   f="$(jobs_file)"
   mkdir -p "$(dirname "$f")"
   if [[ ! -f "$f" ]]; then
-    printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$f"
+    printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\torigin\n' > "$f"
   fi
 }
 
@@ -595,8 +598,16 @@ jobs_dispatched_at_now() {
 
 jobs_emit_row() {
   local job="$1" worker="$2" worktree="$3" branch="$4"
-  local dispatched_at="${5:-}" reported_at="${6:-}"
-  if [[ -n "$reported_at" ]]; then
+  local dispatched_at="${5:-}" reported_at="${6:-}" origin="${7:-}"
+  if [[ -n "$origin" ]]; then
+    if [[ -n "$reported_at" ]]; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin"
+    elif [[ -n "$dispatched_at" ]]; then
+      printf '%s\t%s\t%s\t%s\t%s\t\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$origin"
+    else
+      printf '%s\t%s\t%s\t%s\t\t\t%s\n' "$job" "$worker" "$worktree" "$branch" "$origin"
+    fi
+  elif [[ -n "$reported_at" ]]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at"
   elif [[ -n "$dispatched_at" ]]; then
     printf '%s\t%s\t%s\t%s\t%s\n' "$job" "$worker" "$worktree" "$branch" "$dispatched_at"
@@ -678,6 +689,7 @@ parse_runtime_kv() {
   parsed_worker=""
   parsed_worktree=""
   parsed_branch=""
+  parsed_origin=""
   local arg key val
   for arg in "$@"; do
     case "$arg" in
@@ -690,7 +702,7 @@ parse_runtime_kv() {
         ;;
     esac
     case "$key" in
-      worker|worktree|branch)
+      worker|worktree|branch|origin)
         require_no_ctl "$key" "$val"
         ;;
     esac
@@ -698,11 +710,12 @@ parse_runtime_kv() {
       worker) parsed_worker="$val" ;;
       worktree) parsed_worktree="$val" ;;
       branch) parsed_branch="$val" ;;
+      origin) parsed_origin="$val" ;;
       kind|delivery|status|pr|note)
         die "refusing $key= — kind, delivery, status, PR URL, and note live on the br issue"
         ;;
       *)
-        die_jobs_usage "unknown field $key= (want: worker, worktree, branch)"
+        die_jobs_usage "unknown field $key= (want: worker, worktree, branch, origin)"
         ;;
     esac
   done
@@ -740,20 +753,20 @@ jobs_lookup() {
 }
 
 jobs_rewrite() {
-  local f tmp line job worker worktree branch dispatched_at reported_at
+  local f tmp line job worker worktree branch dispatched_at reported_at origin
   local target="$1" action="$2"
   local new_worker="$3" new_worktree="$4" new_branch="$5"
   local found=0
   f="$(jobs_file)"
   tmp="$(mktemp "${f}.XXXXXX")"
-  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$tmp"
+  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\torigin\n' > "$tmp"
   if [[ -f "$f" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue
       [[ "$line" == \#* ]] && continue
-      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at <<< "$line"
+      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at origin <<< "$line"
       if [[ "$job" != "$target" ]]; then
-        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
         continue
       fi
       found=1
@@ -763,7 +776,7 @@ jobs_rewrite() {
       [[ -n "$new_worker" ]] && worker="$new_worker"
       [[ -n "$new_worktree" ]] && worktree="$new_worktree"
       [[ -n "$new_branch" ]] && branch="$new_branch"
-      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
     done < "$f"
   fi
   if [[ "$found" -eq 0 ]]; then
@@ -774,19 +787,19 @@ jobs_rewrite() {
 }
 
 jobs_stamp_reported() {
-  local target="$1" f tmp line job worker worktree branch dispatched_at reported_at
+  local target="$1" f tmp line job worker worktree branch dispatched_at reported_at origin
   local found=0 stamp effective_reported_at=""
   stamp="$(jobs_dispatched_at_now)"
   f="$(jobs_file)"
   tmp="$(mktemp "${f}.XXXXXX")"
-  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\n' > "$tmp"
+  printf '#job\tworker\tworktree\tbranch\tdispatched_at\treported_at\torigin\n' > "$tmp"
   if [[ -f "$f" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue
       [[ "$line" == \#* ]] && continue
-      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at <<< "$line"
+      IFS=$'\t' read -r job worker worktree branch dispatched_at reported_at origin <<< "$line"
       if [[ "$job" != "$target" ]]; then
-        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+        jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
         continue
       fi
       found=1
@@ -794,7 +807,7 @@ jobs_stamp_reported() {
         reported_at="$stamp"
       fi
       effective_reported_at="$reported_at"
-      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" >> "$tmp"
+      jobs_emit_row "$job" "$worker" "$worktree" "$branch" "$dispatched_at" "$reported_at" "$origin" >> "$tmp"
     done < "$f"
   fi
   if [[ "$found" -eq 0 ]]; then
@@ -846,8 +859,8 @@ jobs_add() {
   fi
   local dispatched_at
   dispatched_at="$(jobs_dispatched_at_now)"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$parsed_worker" "$parsed_worktree" "$parsed_branch" "$dispatched_at" >> "$(jobs_file)"
-  log "jobs add $id worker=$parsed_worker branch=$parsed_branch worktree=$parsed_worktree dispatched_at=$dispatched_at"
+  jobs_emit_row "$id" "$parsed_worker" "$parsed_worktree" "$parsed_branch" "$dispatched_at" "" "$parsed_origin" >> "$(jobs_file)"
+  log "jobs add $id worker=$parsed_worker branch=$parsed_branch worktree=$parsed_worktree dispatched_at=$dispatched_at origin=${parsed_origin:-}"
 }
 
 jobs_set() {
@@ -950,6 +963,8 @@ for line in sys.stdin:
         row["dispatched_at"] = parts[4]
     if len(parts) > 5 and parts[5]:
         row["reported_at"] = parts[5]
+    if len(parts) > 6 and parts[6]:
+        row["origin"] = parts[6]
     rows.append(row)
 json.dump(rows, sys.stdout)
 print()
@@ -1721,6 +1736,76 @@ br_list_json() {
   printf '%s' "$raw" | status_normalize_br_list
 }
 
+status_br_blocked_prefix() {
+  if [[ -n "${BR_BLOCKED_CMD:-}" ]]; then
+    # shellcheck disable=SC2206
+    BR_BLOCKED_PREFIX=($BR_BLOCKED_CMD)
+  else
+    require_br
+    local db
+    db="$(resolve_beads_db)"
+    BR_BLOCKED_PREFIX=(br --db "$db")
+  fi
+}
+
+status_normalize_br_blocked() {
+  python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    rows = json.loads(raw)
+except Exception:
+    sys.stderr.write("[cp] error: br blocked --json: not JSON\n")
+    sys.exit(2)
+if isinstance(rows, dict):
+    issues = rows.get("issues")
+    if issues is None and isinstance(rows.get("data"), list):
+        issues = rows.get("data")
+    if not isinstance(issues, list):
+        sys.stderr.write("[cp] error: br blocked --json: envelope missing issues array\n")
+        sys.exit(2)
+    rows = issues
+elif not isinstance(rows, list):
+    sys.stderr.write("[cp] error: br blocked --json: expected an array or envelope with issues\n")
+    sys.exit(2)
+out = []
+for r in rows:
+    if not isinstance(r, dict):
+        sys.stderr.write("[cp] error: br blocked --json: expected objects\n")
+        sys.exit(2)
+    rid = r.get("id")
+    if not rid:
+        sys.stderr.write("[cp] error: br blocked --json: missing id\n")
+        sys.exit(2)
+    blocked_by = r.get("blocked_by")
+    if blocked_by is None:
+        blocked_by = []
+    elif not isinstance(blocked_by, list):
+        sys.stderr.write("[cp] error: br blocked --json: blocked_by must be an array\n")
+        sys.exit(2)
+    out.append({
+        "id": str(rid),
+        "title": r.get("title"),
+        "status": r.get("status"),
+        "updated_at": r.get("updated_at"),
+        "labels": r.get("labels") if isinstance(r.get("labels"), list) else [],
+        "blocked_by": [str(x) for x in blocked_by],
+        "blocked_by_count": r.get("blocked_by_count"),
+    })
+json.dump(out, sys.stdout)
+'
+}
+
+# br blocked with --limit 0 (verification-safe) and normalized rows.
+br_blocked_json() {
+  local -a args=(blocked --limit 0 --json)
+  local raw
+  if ! raw="$("${BR_BLOCKED_PREFIX[@]}" "${args[@]}")"; then
+    return 1
+  fi
+  printf '%s' "$raw" | status_normalize_br_blocked
+}
+
 # Best-effort git branch per distinct pane cwd (join step 3: branch == br
 # id). command-post's to call, not muxa's — never tmux. Non-git or
 # unreadable cwds are simply absent from the map.
@@ -1793,7 +1878,7 @@ for c in sorted(cand):
 # matrix; the orchestrator (parent-null pane, never br-joined by design) is
 # judged on activity alone rather than falling into "untracked".
 status_assemble() {
-  local who="$1" broker="$2" jobs="$3" br_open="$4" br_closed="$5" branches="$6" generated_at="$7" home="$8" stall_sec="$9"
+  local who="$1" broker="$2" jobs="$3" br_open="$4" br_closed="$5" branches="$6" generated_at="$7" home="$8" stall_sec="$9" origin_filter="${10:-}" br_blocked="${11:-[]}"
   python3 -c '
 import datetime, json, sys
 
@@ -1806,6 +1891,8 @@ branches = json.loads(sys.argv[6])
 generated_at = sys.argv[7]
 home = sys.argv[8]
 stall_sec = int(sys.argv[9])
+origin_filter = sys.argv[10] if len(sys.argv) > 10 else ""
+br_blocked = json.loads(sys.argv[11]) if len(sys.argv) > 11 else []
 
 issues = {}
 for r in br_open:
@@ -1839,6 +1926,7 @@ PHASE_GLYPH = {
     "waiting": "hollow",
     "held": "ring",
     "stalled": "cross",
+    "blocked": "block",
     "done": "check",
     "ghost": "warn",
     "orphaned": "warn",
@@ -2061,6 +2149,73 @@ if root_id and root_id in node_ids:
         if n["phase"] == "orphaned":
             edges.append({"from": root_id, "to": n["id"], "source": "inferred"})
 
+if origin_filter:
+    job_origin = {j["job"]: j.get("origin") for j in jobs if j.get("origin")}
+    allowed_ids = {jid for jid, orig in job_origin.items() if orig == origin_filter}
+    blocked_map = {}
+    for item in br_blocked:
+        bid = item.get("id")
+        if bid:
+            blocked_map[bid] = item.get("blocked_by") or []
+
+    def blocker_entries(blocker_ids):
+        out = []
+        for blocker_id in blocker_ids:
+            if job_origin.get(blocker_id) == origin_filter:
+                iss = issues.get(blocker_id) or {}
+                out.append({"id": blocker_id, "title": iss.get("title")})
+            else:
+                out.append({"id": None, "title": None})
+        return out
+
+    nodes = [n for n in nodes if n.get("br_id") in allowed_ids]
+    present_ids = {n.get("br_id") for n in nodes if n.get("br_id")}
+    for bid in allowed_ids:
+        if bid not in blocked_map:
+            continue
+        entries = blocker_entries(blocked_map[bid])
+        if bid in present_ids:
+            for n in nodes:
+                if n.get("br_id") != bid:
+                    continue
+                n["phase"] = "blocked"
+                n["glyph"] = PHASE_GLYPH["blocked"]
+                n["blocked_by"] = entries
+                break
+        else:
+            issue = issues.get(bid) or {}
+            job = jobs_by_id.get(bid)
+            labels = issue.get("labels") or []
+            cwd = job.get("worktree") if job else None
+            worker = job.get("worker") if job else bid
+            timestamp, time_source = resolve_timestamp(job, issue)
+            nodes.append({
+                "id": worker,
+                "alias": worker,
+                "role": "worker",
+                "cli": None,
+                "pane": None,
+                "pane_state": "gone",
+                "drawing": False,
+                "br_id": bid,
+                "br_status": normalize_br_status(issue.get("status")),
+                "phase": "blocked",
+                "glyph": PHASE_GLYPH["blocked"],
+                "title": issue.get("title"),
+                "project": label_value(labels, "project:") or basename(cwd),
+                "cwd": cwd,
+                "branch": (job.get("branch") if job else None) or bid,
+                "kind": label_value(labels, "kind:"),
+                "delivery": label_value(labels, "delivery:"),
+                "timestamp": timestamp,
+                "time_source": time_source,
+                "joined_via": None,
+                "blocked_by": entries,
+            })
+
+    node_ids = {n["id"] for n in nodes}
+    edges = [e for e in edges if e["from"] in node_ids and e["to"] in node_ids]
+
 result = {
     "v": 1,
     "generated_at": generated_at,
@@ -2069,8 +2224,10 @@ result = {
     "nodes": nodes,
     "edges": edges,
 }
+if origin_filter:
+    result["origin"] = origin_filter
 json.dump(result, sys.stdout)
-' "$who" "$broker" "$jobs" "$br_open" "$br_closed" "$branches" "$generated_at" "$home" "$stall_sec"
+' "$who" "$broker" "$jobs" "$br_open" "$br_closed" "$branches" "$generated_at" "$home" "$stall_sec" "$origin_filter" "$br_blocked"
 }
 
 status_render_table() {
@@ -2227,6 +2384,7 @@ sys.stdout.write(doc)
 
 # Gather muxa/br/jobs facts and assemble the JSON payload (--json stdout).
 status_snapshot() {
+  local origin_filter="${1:-}"
   local who_json broker_json jobs_json
   who_json="$(status_who_json)"
   broker_json="$(status_broker_json)"
@@ -2261,6 +2419,15 @@ status_snapshot() {
     fi
   fi
 
+  local blocked_json='[]'
+  if [[ -n "$origin_filter" ]]; then
+    local -a BR_BLOCKED_PREFIX=()
+    status_br_blocked_prefix
+    if ! blocked_json="$(br_blocked_json)"; then
+      die "br blocked --json failed"
+    fi
+  fi
+
   local generated_at="${CP_STATUS_NOW:-}"
   if [[ -z "$generated_at" ]]; then
     generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -2271,7 +2438,7 @@ status_snapshot() {
     die_usage "CP_STATUS_STALL_SEC must be a positive integer (got: ${CP_STATUS_STALL_SEC:-})"
   fi
 
-  status_assemble "$who_json" "$broker_json" "$jobs_json" "$br_open_json" "$br_closed_json" "$branches_json" "$generated_at" "$CP_HOME" "$stall_sec"
+  status_assemble "$who_json" "$broker_json" "$jobs_json" "$br_open_json" "$br_closed_json" "$branches_json" "$generated_at" "$CP_HOME" "$stall_sec" "$origin_filter" "$blocked_json"
 }
 
 # One-shot pane scrollback for the dashboard preview modal. muxa tail only on
@@ -2471,7 +2638,7 @@ if __name__ == "__main__":
 }
 
 cmd_status() {
-  local json=0 html=0 serve=0 port=8765 pane_alias=""
+  local json=0 html=0 serve=0 port=8765 pane_alias="" origin_filter=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json)
@@ -2485,6 +2652,11 @@ cmd_status() {
       --serve)
         serve=1
         shift
+        ;;
+      --origin)
+        [[ $# -ge 2 ]] || die_usage "status --origin needs ID"
+        origin_filter="$2"
+        shift 2
         ;;
       --pane)
         [[ $# -ge 2 ]] || die_usage "status --pane needs ALIAS"
@@ -2505,6 +2677,10 @@ cmd_status() {
         ;;
     esac
   done
+
+  if [[ -n "$origin_filter" && ( "$serve" -eq 1 || -n "$pane_alias" ) ]]; then
+    die_usage "status: --origin is mutually exclusive with --serve and --pane"
+  fi
 
   if [[ -n "$pane_alias" && ( "$serve" -eq 1 || "$json" -eq 1 || "$html" -eq 1 ) ]]; then
     die_usage "status: --pane is mutually exclusive with --json, --html, and --serve"
@@ -2537,7 +2713,7 @@ cmd_status() {
   fi
 
   local result
-  result="$(status_snapshot)"
+  result="$(status_snapshot "$origin_filter")"
 
   if [[ "$json" -eq 1 ]]; then
     printf '%s\n' "$result"
@@ -3297,7 +3473,7 @@ cmd_dispatch() {
     die "muxa dispatch cwd $json_cwd != leased worktree $wt — do not retype paths; occupancy may be live (worker $worker)"
   fi
 
-  jobs_add "$br_id" "worker=$worker" "worktree=$wt" "branch=$branch" >&2
+  jobs_add "$br_id" "worker=$worker" "worktree=$wt" "branch=$branch" "origin=terminal" >&2
 
   receipt="unconfirmed"
   local pane_kind tail_out="" tail_rc=0
