@@ -34,3 +34,11 @@ comments output.
 
 Re-run `bin/install.sh` after pulling this change; migrate the live tracker
 before expecting `bin/cp status` to work.
+
+## br 0.5.x contract notes
+
+- `br show --json` returns a JSON **array of one** issue with comments inlined;
+  never use it for artifact bodies — use `bin/cp artifact get` / `br comments list`.
+- In `--json` mode, structured errors (`SCHEMA_MISMATCH`, etc.) print on **stdout**
+  as `{"error":{...}}` with non-zero exit — `bin/cp` rejects them before
+  normalizing list/blocked/comments output.

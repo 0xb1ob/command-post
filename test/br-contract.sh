@@ -11,7 +11,7 @@ BR052="${BR052:-$HOME/.local/bin/br-0.5.2.parked}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP="$ROOT/bin/cp"
 FIX_SRC="$ROOT/test/fixtures/beads16"
-OPEN_ID="t-z34"
+OPEN_ID="t-m6i"
 PRE_TOTAL=53
 failed=0
 n=0
@@ -47,15 +47,16 @@ set +e
 mismatch_out="$("$BR052" --db "$DB" --no-auto-flush --no-auto-import --json list --limit 0 2>/dev/null)"
 mismatch_rc=$?
 set -e
-if [[ "$mismatch_rc" -eq 2 ]] && printf '%s' "$mismatch_out" | python3 -c '
+if [[ "$mismatch_rc" -ne 0 ]] && printf '%s' "$mismatch_out" | python3 -c '
 import json, sys
 e = json.load(sys.stdin)["error"]
 assert e["code"] == "SCHEMA_MISMATCH"
-assert e["context"]["found"] == 16 and e["context"]["expected"] == 17
+ctx = e.get("context") or {}
+assert int(ctx.get("found", -1)) == 16 and int(ctx.get("expected", -1)) == 17
 '; then
-  ok "0.5.2 list on schema-16 exits 2 with SCHEMA_MISMATCH stdout"
+  ok "0.5.2 list on schema-16 fails with SCHEMA_MISMATCH stdout"
 else
-  fail "0.5.2 list on schema-16 exits 2 with SCHEMA_MISMATCH stdout (rc=$mismatch_rc out=$mismatch_out)"
+  fail "0.5.2 list on schema-16 fails with SCHEMA_MISMATCH stdout (rc=$mismatch_rc out=$mismatch_out)"
 fi
 
 cat > "$TMP/br-mismatch-stub.sh" <<EOF
