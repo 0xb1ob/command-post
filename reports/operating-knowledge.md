@@ -43,11 +43,16 @@ Evidence: command-post-gv7 / ethereum-staking-api #352.
 
 ## br list verification cap
 
-br 0.2.19 default `--limit` is unlimited; older br defaulted to 50. Verification
-paths in `bin/cp` pass `--limit 0` explicitly. When auditing manually, pass
-`--limit 0` if the result decides membership or existence; `--limit 50` caps
-at 50 and sets `has_more`. Fix tracked:
+br 0.2.19 and 0.5.2 both treat `--limit 0` as unlimited; default is also
+unlimited. Verification paths in `bin/cp` pass `--limit 0` explicitly. When
+auditing manually, pass `--limit 0` if the result decides membership or
+existence; `--limit 50` caps at 50 and sets `has_more`. Fix tracked:
 [command-post#74](https://github.com/0xb1ob/command-post/issues/74).
+
+**Search is not a membership oracle across versions:** `br search -a --json`
+still returns a bare array, but hit ranking changed between 0.2.19 and 0.5.2.
+Use `br list -s closed --limit 0` (or `--all --json --limit 0`) for closed-set
+audits, not search result counts.
 
 ## Promote-not-spawn and occupancy
 

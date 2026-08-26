@@ -1255,6 +1255,7 @@ artifact_get() {
   if ! raw="$(br --db "$db" comments list "$id" --json)"; then
     die "cannot list comments for $id"
   fi
+  br_json_stdout_check "$raw" "br comments list --json" || exit 2
   ARTIFACT_ID="$id" python3 -c '
 import json, os, sys
 raw = sys.stdin.read()
@@ -1262,6 +1263,16 @@ try:
     comments = json.loads(raw)
 except Exception:
     sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.exit(2)
+if isinstance(comments, dict) and "error" in comments:
+    err = comments.get("error")
+    if isinstance(err, dict):
+        code = err.get("code") or "BR_ERROR"
+        msg = err.get("message") or code
+    else:
+        code = "BR_ERROR"
+        msg = str(err)
+    sys.stderr.write("[cp] error: br comments list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if not isinstance(comments, list):
     sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
@@ -1334,6 +1345,7 @@ gate_prior_state() {
   if ! raw="$(br --db "$db" comments list "$id" --json)"; then
     return 1
   fi
+  br_json_stdout_check "$raw" "br comments list --json" || return 2
   python3 -c '
 import json, re, sys
 raw = sys.stdin.read()
@@ -1341,6 +1353,16 @@ try:
     comments = json.loads(raw)
 except Exception:
     sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.exit(2)
+if isinstance(comments, dict) and "error" in comments:
+    err = comments.get("error")
+    if isinstance(err, dict):
+        code = err.get("code") or "BR_ERROR"
+        msg = err.get("message") or code
+    else:
+        code = "BR_ERROR"
+        msg = str(err)
+    sys.stderr.write("[cp] error: br comments list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if not isinstance(comments, list):
     sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
@@ -1853,6 +1875,30 @@ status_br_prefix() {
   fi
 }
 
+# Fail closed when br --json stdout is a structured error envelope (v0.5.x).
+br_json_stdout_check() {
+  local raw="$1" context="$2"
+  BR_JSON_CONTEXT="$context" python3 -c '
+import json, os, sys
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict) and "error" in data:
+    err = data.get("error")
+    if isinstance(err, dict):
+        code = err.get("code") or "BR_ERROR"
+        msg = err.get("message") or code
+    else:
+        code = "BR_ERROR"
+        msg = str(err)
+    ctx = os.environ.get("BR_JSON_CONTEXT", "br --json")
+    sys.stderr.write("[cp] error: %s: %s: %s\n" % (ctx, code, msg))
+    sys.exit(2)
+' <<< "$raw"
+}
+
 status_normalize_br_list() {
   python3 -c '
 import json, sys
@@ -1861,6 +1907,16 @@ try:
     rows = json.loads(raw)
 except Exception:
     sys.stderr.write("[cp] error: br list --json: not JSON\n")
+    sys.exit(2)
+if isinstance(rows, dict) and "error" in rows:
+    err = rows.get("error")
+    if isinstance(err, dict):
+        code = err.get("code") or "BR_ERROR"
+        msg = err.get("message") or code
+    else:
+        code = "BR_ERROR"
+        msg = str(err)
+    sys.stderr.write("[cp] error: br list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if isinstance(rows, dict):
     issues = rows.get("issues")
@@ -1899,6 +1955,7 @@ br_list_json() {
   if ! raw="$("${BR_PREFIX[@]}" "${args[@]}")"; then
     return 1
   fi
+  br_json_stdout_check "$raw" "br list --json" || return 1
   printf '%s' "$raw" | status_normalize_br_list
 }
 
@@ -1922,6 +1979,16 @@ try:
     rows = json.loads(raw)
 except Exception:
     sys.stderr.write("[cp] error: br blocked --json: not JSON\n")
+    sys.exit(2)
+if isinstance(rows, dict) and "error" in rows:
+    err = rows.get("error")
+    if isinstance(err, dict):
+        code = err.get("code") or "BR_ERROR"
+        msg = err.get("message") or code
+    else:
+        code = "BR_ERROR"
+        msg = str(err)
+    sys.stderr.write("[cp] error: br blocked --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if isinstance(rows, dict):
     issues = rows.get("issues")
@@ -1969,6 +2036,7 @@ br_blocked_json() {
   if ! raw="$("${BR_BLOCKED_PREFIX[@]}" "${args[@]}")"; then
     return 1
   fi
+  br_json_stdout_check "$raw" "br blocked --json" || return 1
   printf '%s' "$raw" | status_normalize_br_blocked
 }
 
@@ -3780,9 +3848,19 @@ cmd_doctor() {
   [[ $# -eq 0 ]] || die_doctor_usage "doctor takes no arguments"
 
   local -a host_tools=(python3 muxa br treehouse git tmux)
-  local br_slug_ok=0
+  local br_slug_ok=0 br_version_ok=0 br_tracker_ok=0
   if br_create_supports_slug; then
     br_slug_ok=1
+  fi
+  if command -v br >/dev/null 2>&1 && br --version 2>/dev/null | grep -q '0.5.2'; then
+    br_version_ok=1
+  fi
+  if [[ -f "$CP_HOME/.beads/beads.db" ]]; then
+    if br --db "$CP_HOME/.beads/beads.db" list --json >/dev/null 2>&1; then
+      br_tracker_ok=1
+    fi
+  else
+    br_tracker_ok=1
   fi
   local -a cli_names=() forbid=()
   local name role source kr
@@ -3812,6 +3890,8 @@ cmd_doctor() {
     export CP_DOCTOR_ROLES_JSON
     CP_DOCTOR_ROLES_JSON="$(doctor_roles_json)"
     export CP_DOCTOR_BR_SLUG_OK="$br_slug_ok"
+    export CP_DOCTOR_BR_VERSION_OK="$br_version_ok"
+    export CP_DOCTOR_BR_TRACKER_OK="$br_tracker_ok"
     python3 - "$ROOT" "$CP_HOME" "$host_missing" <<'PY'
 import json, os, subprocess, sys
 
@@ -3836,6 +3916,8 @@ for ht in host_tools:
     host[ht] = {"ok": p is not None, "path": p or ""}
 if host.get("br", {}).get("ok"):
     host["br"]["create_slug"] = os.environ.get("CP_DOCTOR_BR_SLUG_OK") == "1"
+    host["br"]["version_ok"] = os.environ.get("CP_DOCTOR_BR_VERSION_OK") == "1"
+    host["br"]["tracker_ok"] = os.environ.get("CP_DOCTOR_BR_TRACKER_OK") == "1"
 
 clis = {}
 if os.path.isfile(clis_path):
@@ -3888,7 +3970,19 @@ if host.get("br", {}).get("ok") and not host["br"].get("create_slug"):
     missing.append({
         "what": "br --slug",
         "kind": "host-feature",
-        "fix": "run bin/install.sh (upgrades br when create lacks --slug; AGENTS.md intake requires it)",
+        "fix": "run bin/install.sh (AGENTS.md intake requires --slug on br create)",
+    })
+if host.get("br", {}).get("ok") and not host["br"].get("version_ok"):
+    missing.append({
+        "what": "br 0.5.2",
+        "kind": "host-version",
+        "fix": "run bin/install.sh (pins beads_rust v0.5.2)",
+    })
+if host.get("br", {}).get("ok") and not host["br"].get("tracker_ok"):
+    missing.append({
+        "what": "br tracker schema",
+        "kind": "host-schema",
+        "fix": "br --db <home>/.beads/beads.db doctor migrate-schema plan (then apply --plan-token)",
     })
 seen = set()
 for role, rinfo in roles.items():
@@ -3918,7 +4012,7 @@ out = {
 }
 print(json.dumps(out))
 PY
-    exit $(( host_missing || br_slug_ok == 0 ? 2 : 0 ))
+    exit $(( host_missing || br_slug_ok == 0 || br_version_ok == 0 || br_tracker_ok == 0 ? 2 : 0 ))
   fi
 
   printf 'command-post home: %s\n' "$CP_HOME"
@@ -3965,6 +4059,15 @@ PY
   fi
   if [[ "$br_slug_ok" -eq 0 ]]; then
     printf '\n[cp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)\n' >&2
+    exit 2
+  fi
+  if [[ "$br_version_ok" -eq 0 ]]; then
+    printf '\n[cp] error: br is not 0.5.2 — run bin/install.sh (pins beads_rust v0.5.2)\n' >&2
+    exit 2
+  fi
+  if [[ "$br_tracker_ok" -eq 0 ]]; then
+    printf '\n[cp] error: home tracker schema mismatch — run: br --db %s doctor migrate-schema plan\n' \
+      "$CP_HOME/.beads/beads.db" >&2
     exit 2
   fi
 }

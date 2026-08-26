@@ -3,6 +3,14 @@
 # Run from the command-post repo: test/gate.sh
 set -euo pipefail
 
+# BR: binary for fresh-init tests (artifact.sh, gate.sh). Default = PATH `br`.
+# Override to exercise 0.5.2 without swapping PATH:
+#   BR=$HOME/.local/bin/br-0.5.2.parked test/gate.sh
+BR="${BR:-br}"
+command -v "$BR" >/dev/null || { echo "br not found (set BR to an executable)" >&2; exit 2; }
+BR_BIN="$(command -v "$BR")"
+export PATH="$(dirname "$BR_BIN"):$PATH"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CP="$ROOT/bin/cp"
 failed=0
@@ -31,7 +39,7 @@ expect_exit() {
   fi
 }
 
-if ! command -v br >/dev/null 2>&1; then
+if ! command -v "$BR" >/dev/null 2>&1; then
   printf 'br not on PATH (needed for gate tests)\n' >&2
   exit 2
 fi
@@ -109,10 +117,10 @@ fi
 
 (
   cd "$CP_HOME"
-  br init --prefix t >/dev/null
+  "$BR" init --prefix t >/dev/null
 )
 DB="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$CP_HOME/.beads/beads.db")"
-ID="$(br --db "$DB" create "gate-test" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID="$("$BR" --db "$DB" create "gate-test" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 
 rm -f "$TMP/runs" "$TMP/last-prompt"
 export CP_GATE_CMD="$TMP/pass.sh"
@@ -173,7 +181,7 @@ else
   fail "pass invokes the reviewer once"
 fi
 
-comments="$(br --db "$DB" comments list "$ID" --json)"
+comments="$("$BR" --db "$DB" comments list "$ID" --json)"
 if printf '%s\n' "$comments" | TOKEN="$TOKEN" python3 -c '
 import json, os, sys
 comments = json.load(sys.stdin)
@@ -191,7 +199,7 @@ fi
 unset BR_SHOW_CMD
 
 # revise
-ID2="$(br --db "$DB" create "gate-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID2="$("$BR" --db "$DB" create "gate-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID2" "$TMP/src.md" >/dev/null
 export CP_GATE_CMD="$TMP/revise.sh"
 rm -f "$TMP/runs"
@@ -215,7 +223,7 @@ assert d["cause"] is None
 else
   fail "revise JSON includes reasons and revisions (got $out)"
 fi
-comments="$(br --db "$DB" comments list "$ID2" --json)"
+comments="$("$BR" --db "$DB" comments list "$ID2" --json)"
 if printf '%s\n' "$comments" | python3 -c '
 import json, sys
 comments = json.load(sys.stdin)
@@ -251,7 +259,7 @@ assert "revisions" not in d
 else
   fail "capped run JSON is escalate with reasons, no revisions (got $out)"
 fi
-comments="$(br --db "$DB" comments list "$ID2" --json)"
+comments="$("$BR" --db "$DB" comments list "$ID2" --json)"
 if printf '%s\n' "$comments" | python3 -c '
 import json, sys
 comments = json.load(sys.stdin)
@@ -265,7 +273,7 @@ else
 fi
 
 # flag forces escalate even when reviewer said pass
-ID3="$(br --db "$DB" create "gate-flag" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID3="$("$BR" --db "$DB" create "gate-flag" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID3" "$TMP/src.md" >/dev/null
 export CP_GATE_CMD="$TMP/flag.sh"
 rc=0
@@ -291,7 +299,7 @@ else
 fi
 
 # malformed → retry → escalate
-ID4="$(br --db "$DB" create "gate-bad" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID4="$("$BR" --db "$DB" create "gate-bad" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID4" "$TMP/src.md" >/dev/null
 export CP_GATE_CMD="$TMP/malformed.sh"
 rm -f "$TMP/runs"
@@ -320,7 +328,7 @@ assert "revisions" not in d
 else
   fail "malformed escalate JSON includes reasons, no revisions (got $out)"
 fi
-comments="$(br --db "$DB" comments list "$ID4" --json)"
+comments="$("$BR" --db "$DB" comments list "$ID4" --json)"
 if printf '%s\n' "$comments" | python3 -c '
 import json, sys
 comments = json.load(sys.stdin)
@@ -360,7 +368,7 @@ assert "revisions" not in d
 else
   fail "repeated operational JSON is operational_persistent (got $out)"
 fi
-comments="$(br --db "$DB" comments list "$ID4" --json)"
+comments="$("$BR" --db "$DB" comments list "$ID4" --json)"
 if printf '%s\n' "$comments" | python3 -c '
 import json, sys
 comments = json.load(sys.stdin)
@@ -374,7 +382,7 @@ else
 fi
 
 # operational after revise is still first operational (not persistent)
-ID4B="$(br --db "$DB" create "gate-bad-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID4B="$("$BR" --db "$DB" create "gate-bad-revise" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID4B" "$TMP/src.md" >/dev/null
 export CP_GATE_CMD="$TMP/revise.sh"
 "$CP" gate "$ID4B" >/dev/null || true
@@ -404,7 +412,7 @@ scope_growth: no
 blocking_unknowns: no
 revisions:
 - ${BLOATED_REV}"
-ID_BLOB="$(br --db "$DB" create "gate-bloat" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID_BLOB="$("$BR" --db "$DB" create "gate-bloat" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID_BLOB" "$TMP/src.md" >/dev/null
 export CP_GATE_CMD="$TMP/bloated.sh"
 rc=0
@@ -434,7 +442,7 @@ fi
 
 # --model is accepted (stub ignores it); usage
 export CP_GATE_CMD="$TMP/pass.sh"
-ID5="$(br --db "$DB" create "gate-model" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID5="$("$BR" --db "$DB" create "gate-model" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID5" "$TMP/src.md" >/dev/null
 expect_exit 0 "gate --model is accepted" "$CP" gate "$ID5" --model composer-2.5-fast
 expect_exit 2 "gate without ID is usage" "$CP" gate
@@ -442,7 +450,7 @@ expect_exit 2 "unknown flag is usage" "$CP" gate --nope "$ID"
 
 # missing agent without CP_GATE_CMD → exit 2 (no worker CLI on isolated PATH)
 unset CP_GATE_CMD
-ID6="$(br --db "$DB" create "gate-noagent" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ID6="$("$BR" --db "$DB" create "gate-noagent" -t task -p 2 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$CP" artifact add "$ID6" "$TMP/src.md" >/dev/null
 gate_isolated_path() {
   mkdir -p "$TMP/host"

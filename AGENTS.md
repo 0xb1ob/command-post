@@ -407,7 +407,9 @@ br create "<job title>" -t task -p 2 \
 ```
 
 Ad-hoc (no GitHub issue): same without `--external-ref`, add `-d "<description>"`.
-`--slug` needs current `br` ([why](reports/br-slug-install.md)).
+`--slug` is supported on br 0.2.19+ ([why](reports/br-slug-install.md)); `bin/install.sh`
+pins br 0.5.2 — upgrading the binary without `br doctor migrate-schema` leaves a
+schema-16 tracker unreadable to the pin.
 Use the returned id everywhere below. Notes: `br update <id> --notes "…"`. Comments:
 `br comments add <id> "…"`.
 
@@ -435,8 +437,15 @@ on the br issue (comments). Do not keep a parallel job journal.
 
 ### Job history (closed issues)
 
-Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json` (optional `-l project:<name>`).
+Closed br issues are queryable history: `br list -s closed --json`, `br search "<query>" -a --json`, `br show <id> --json`, `br changelog --since DATE --json`.
 **Verify, don't browse:** pass `--limit 0` when the result decides membership or existence; `--limit 50` caps at 50 ([why](reports/operating-knowledge.md#br-list-verification-cap)).
+
+**br 0.5.x:** `bin/install.sh` pins v0.5.2. Existing schema-16 trackers require
+`br doctor migrate-schema plan` then `apply --plan-token` before ordinary commands
+work. In `--json` mode, structured errors (`SCHEMA_MISMATCH`, etc.) print on
+**stdout** as `{"error":{...}}` with non-zero exit — not a silent empty ledger.
+`br show --json` returns a JSON array of one issue with comments inlined; never
+use it for artifact bodies ([artifact get](#worker-envelope)).
 
 ## Memory
 

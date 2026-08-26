@@ -63,8 +63,16 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
 
 has "$INSTALL" 'python3' "install.sh require_prereqs includes python3"
 has "$INSTALL" 'bin/cp' "install.sh mentions python3 is for bin/cp"
-has "$INSTALL" 'br_create_supports_slug' "install.sh checks br create --slug support"
-has "$INSTALL" 'lacks --slug' "install.sh upgrades br when --slug missing"
+has "$INSTALL" '--version v0.5.2' \
+  "install.sh pins beads_rust v0.5.2 (does not float to latest)"
+has "$INSTALL" 'list --json' \
+  "install.sh gates on br list --json against the home db, not --slug"
+has "$INSTALL" 'migrate-schema' \
+  "install.sh names doctor migrate-schema when list --json fails"
+lacks "$INSTALL" 'br_create_supports_slug' \
+  "install.sh does not skip or upgrade based on the --slug probe"
+lacks "$INSTALL" 'lacks --slug' \
+  "install.sh log/probe no longer treats missing --slug as the upgrade reason"
 
 if [[ "$failed" -eq 0 ]]; then
   printf '\n# %d tests passed\n' "$n"
