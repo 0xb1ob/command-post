@@ -67,7 +67,7 @@ capability.
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
   is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html] [--serve [--port N]]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--html` embeds the JSON; `--serve` is a foreground localhost dashboard (127.0.0.1 only). Age prefers `jobs.tsv` `dispatched_at`; legacy rows fall back to `br.updated_at`. Phases `stalled` / `held` need `reported_at` — [Stalled and held workers](#stalled-and-held-workers).
+  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html] [--serve [--port N]] [--origin ID]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--origin` filters to one jobs.tsv origin ([why](reports/origin-scoping.md)). `--html` embeds the JSON; `--serve` is a foreground localhost dashboard (127.0.0.1 only). Age prefers `jobs.tsv` `dispatched_at`; legacy rows fall back to `br.updated_at`. Phases `stalled` / `held` need `reported_at` — [Stalled and held workers](#stalled-and-held-workers).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
   consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker

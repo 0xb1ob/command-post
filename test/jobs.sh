@@ -121,6 +121,33 @@ else
   fail "mixed list --json parse: $mixed_json"
 fi
 
+# origin column: optional trailing field; legacy rows omit it
+cat > "$CP_JOBS_FILE" <<EOF
+#job	worker	worktree	branch
+legacy-origin	old-worker	$WT	legacy-origin
+stamped-origin	new-worker	$WT	stamped-branch	2026-08-24T12:00:00Z		origin-a
+EOF
+origin_json="$("$CP" jobs list --json)"
+if printf '%s\n' "$origin_json" | python3 -c '
+import json, sys
+rows = {r["job"]: r for r in json.load(sys.stdin)}
+assert "origin" not in rows["legacy-origin"]
+assert rows["stamped-origin"]["origin"] == "origin-a"
+assert rows["stamped-origin"]["dispatched_at"] == "2026-08-24T12:00:00Z"
+'; then
+  ok "list --json parses origin without backfill on legacy rows"
+else
+  fail "origin list --json parse: $origin_json"
+fi
+
+"$CP" jobs add cp-origin worker=swift-oak worktree="$WT" branch=feat/explicit origin=slack-thread-1 >/dev/null
+explicit_json="$("$CP" jobs list --json | python3 -c 'import json,sys; print(json.dumps(next(r for r in json.load(sys.stdin) if r["job"]=="cp-origin")))')"
+if printf '%s\n' "$explicit_json" | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["origin"]=="slack-thread-1"'; then
+  ok "jobs add accepts origin= and list --json includes it"
+else
+  fail "jobs add origin=: $explicit_json"
+fi
+
 # fresh cp-one row for downstream duplicate/set/done tests
 rm -f "$CP_JOBS_FILE"
 "$CP" jobs add cp-one worker=swift-oak worktree="$TMP/wt" branch=feat/explicit >/dev/null

@@ -469,8 +469,8 @@ if git -C "$LEASE" symbolic-ref --short HEAD | grep -F -q job-ok; then
 else
   fail "leased worktree branch is $(git -C "$LEASE" symbolic-ref --short HEAD 2>/dev/null || echo detached)"
 fi
-if "$CP" jobs list --json | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows[0]["job"]=="job-ok"; assert rows[0]["branch"]=="job-ok"'; then
-  ok "jobs add recorded worker/worktree/branch"
+if "$CP" jobs list --json | python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows[0]["job"]=="job-ok"; assert rows[0]["branch"]=="job-ok"; assert rows[0].get("origin")=="terminal"'; then
+  ok "jobs add recorded worker/worktree/branch/origin=terminal"
 else
   fail "jobs add row missing"
 fi
