@@ -166,20 +166,23 @@ fi
 # still the orchestrator's muxa send — this CLI must not send, spawn, or
 # unregister. Strip comments and quoted strings so policy printf text is
 # not an invocation.
-cp_muxa_hits="$(sed -E "/<<'EOF'/,/^EOF$/d; s/#.*//; s/\"[^\"]*\"//g; s/'[^']*'//g" "$ROOT/bin/cp" | grep -nE 'muxa[[:space:]]+(spawn|send|unregister)([[:space:]]|$)' || true)"
+cp_muxa_hits="$(grep -rnE 'muxa[[:space:]]+(spawn|send|unregister)([[:space:]]|$)' "$ROOT/internal/cp" 2>/dev/null | grep -v '_test.go' || true)"
 if [[ -n "$cp_muxa_hits" ]]; then
   fail "bin/cp does not invoke muxa spawn/send/unregister ($cp_muxa_hits)"
 else
   ok "bin/cp does not invoke muxa spawn/send/unregister"
 fi
 
-grep -F -q 'dispatch_cmd=(muxa dispatch)' "$ROOT/bin/cp" \
+grep -F -q 'dispatch_cmd=(muxa dispatch)' "$ROOT/scripts/cp-legacy.bash" \
+  || grep -F -q 'muxa dispatch' "$ROOT/internal/cp/dispatch.go" \
   && ok "bin/cp dispatch calls muxa dispatch" \
   || fail "bin/cp dispatch calls muxa dispatch"
-grep -F -q 'muxa tail' "$ROOT/bin/cp" \
+grep -F -q 'muxa tail' "$ROOT/internal/cp/dispatch.go" \
+  || grep -F -q 'muxa tail' "$ROOT/scripts/cp-legacy.bash" \
   && ok "bin/cp dispatch calls muxa tail" \
   || fail "bin/cp dispatch calls muxa tail"
-grep -F -q 'muxa kill' "$ROOT/bin/cp" \
+grep -F -q 'muxa kill' "$ROOT/internal/cp/teardown.go" \
+  || grep -F -q 'muxa kill' "$ROOT/scripts/cp-legacy.bash" \
   && ok "bin/cp teardown calls muxa kill" \
   || fail "bin/cp teardown calls muxa kill"
 

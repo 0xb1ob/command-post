@@ -1,0 +1,78 @@
+package cp
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+var (
+	// Version is set at build time via -ldflags.
+	Version = "dev"
+	Commit  = "none"
+
+	defaultGateModel       = "composer-2.5-fast"
+	defaultStatusStallSec  = 600
+	jobIDPattern           = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	projectNamePattern     = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	templateNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
+// Env holds command-post home and repo root (from the cp binary location).
+type Env struct {
+	Root   string // tracked repo root (parent of bin/)
+	Home   string // CP_HOME
+	Prog   string // path to this binary
+	JobsFile string
+}
+
+func NewEnv() (*Env, error) {
+	prog, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	prog, err = filepath.EvalSymlinks(prog)
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Dir(filepath.Dir(prog))
+	home := os.Getenv("CP_HOME")
+	if home == "" {
+		home = root
+		if _, err := os.Stat(home); err == nil {
+			if resolved, err := filepath.EvalSymlinks(home); err == nil {
+				home = resolved
+			}
+		}
+	}
+	jf := os.Getenv("CP_JOBS_FILE")
+	if jf == "" {
+		jf = filepath.Join(home, "state", "jobs.tsv")
+	}
+	return &Env{Root: root, Home: home, Prog: prog, JobsFile: jf}, nil
+}
+
+func (e *Env) ClisTSV() string  { return filepath.Join(e.Root, "share", "clis.tsv") }
+func (e *Env) RoutingTSV() string { return filepath.Join(e.Home, "data", "routing.tsv") }
+func (e *Env) TemplatesDir() string { return filepath.Join(e.Home, "templates") }
+func (e *Env) GateRubric() string { return filepath.Join(e.Root, "templates", "gate-rubric.md") }
+func (e *Env) StatusAssetsDir() string { return filepath.Join(e.Root, "lib", "status") }
+func (e *Env) InstallSh() string { return filepath.Join(e.Root, "bin", "install.sh") }
+
+func validateJobID(id string) error {
+	if !jobIDPattern.MatchString(id) {
+		return failError("invalid job id: %s (br id; no whitespace)", id)
+	}
+	return nil
+}
+
+func requireNoCTL(field, val string) error {
+	if val == "" {
+		return usageError("empty %s=", field)
+	}
+	if strings.ContainsAny(val, "\t\n") {
+		return usageError("invalid %s: tabs and newlines are not allowed", field)
+	}
+	return nil
+}

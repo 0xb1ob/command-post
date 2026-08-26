@@ -1,0 +1,78 @@
+name: Release cp binary
+
+# install.sh downloads cp from a release; every tag needs assets attached.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach assets to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, goos: linux, goarch: amd64 }
+          - { runner: ubuntu-latest, goos: linux, goarch: arm64 }
+          - { runner: macos-latest, goos: darwin, goarch: amd64, cc: "clang -arch x86_64" }
+          - { runner: macos-latest, goos: darwin, goarch: arm64, cc: "clang -arch arm64" }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Build cp
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.goos == 'darwin' && '1' || '0' }}
+          CC: ${{ matrix.cc }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -eux
+          out="cp-${GOOS}-${GOARCH}"
+          VERSION="${TAG#v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          VER_FLAGS="-X github.com/0xb1ob/command-post/internal/cp.Version=${VERSION} -X github.com/0xb1ob/command-post/internal/cp.Commit=${COMMIT}"
+          if [ "$GOOS" = darwin ]; then
+            go build -ldflags="-linkmode=external ${VER_FLAGS}" -o "$out" ./cmd/cp
+            xattr -c "$out" 2>/dev/null || true
+            codesign -s - --force --timestamp=none "$out"
+            otool -l "$out" | grep -q LC_UUID
+          else
+            go build -ldflags="${VER_FLAGS}" -o "$out" ./cmd/cp
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cp-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cp-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          set -eux
+          cd dist
+          sha256sum cp-* > SHA256SUMS
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.event.release.tag_name }}
+          files: dist/cp-* dist/SHA256SUMS

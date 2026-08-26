@@ -452,21 +452,22 @@ kill -9 "${DEG_LISTENER:-}" "$DEG_PID" 2>/dev/null || true
 wait "$DEG_PID" 2>/dev/null || true
 trap 'rm -rf "$TMP"' EXIT
 
-# --- python3 missing -------------------------------------------------------
+# --- status --serve works without python3 (Go binary; no python3 product dep) ----
 NOPORT="$(pick_port)"
 NOPATH_DIR="$TMP/nopython"
 mkdir -p "$NOPATH_DIR"
-# Minimal PATH: shell utilities without python3 (pyenv shims excluded).
 SANPATH="/bin:/usr/bin:/sbin:/usr/sbin"
 if PATH="$SANPATH" command -v python3 >/dev/null 2>&1; then
   ok "status --serve without python3 (skipped: python3 on minimal PATH)"
 else
   rc=0
-  out="$(PATH="$SANPATH" CP_HOME="$CP_HOME" "$CP" status --serve --port "$NOPORT" 2>&1)" || rc=$?
-  if [[ "$rc" -eq 2 ]] && printf '%s\n' "$out" | grep -F -q 'python3 not on PATH (needed for status)'; then
-    ok "status --serve without python3 (exit 2)"
+  out="$(PATH="$SANPATH" CP_HOME="$CP_HOME" "$CP" status --serve --port "$NOPORT" 2>&1 & echo $! >"$TMP/nopy.pid")" || rc=$?
+  sleep 0.5
+  kill "$(cat "$TMP/nopy.pid")" 2>/dev/null || true
+  if head -n1 <<< "$out" | grep -q 'http://127.0.0.1:'; then
+    ok "status --serve without python3 (prints URL)"
   else
-    fail "status --serve without python3 (want exit 2, got $rc; out: $out)"
+    fail "status --serve without python3 (got: $out)"
   fi
 fi
 

@@ -67,7 +67,7 @@ git -C "$TMP/wt" symbolic-ref HEAD refs/heads/feat/detect >/dev/null
 WT="$(cd "$TMP/wt" && pwd -P)"
 
 # add records worker, worktree, branch; list shows them
-out="$("$CP" jobs add cp-one worker=swift-oak worktree="$TMP/wt" branch=feat/explicit)"
+out="$("$CP" jobs add cp-one worker=swift-oak worktree="$TMP/wt" branch=feat/explicit 2>&1)"
 if printf '%s\n' "$out" | grep -q 'jobs add cp-one'; then
   ok "add logs the row"
 else
