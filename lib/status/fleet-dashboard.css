@@ -560,6 +560,7 @@ body.fleet-dashboard {
   box-shadow: var(--shadow-sm);
   padding: 12px 14px;
   overflow: auto;
+  overflow-anchor: none;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.7;
