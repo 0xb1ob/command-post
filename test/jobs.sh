@@ -245,6 +245,29 @@ export BR_SHOW_CMD=true
 # whitespace in id refused
 expect_exit 1 "whitespace id refused" "$CP" jobs add "cp foo" worker=a worktree="$TMP/wt"
 
+# origin + empty reported_at round-trip through jobs reported (#85)
+cat > "$CP_JOBS_FILE" <<EOF
+#job	worker	worktree	branch	dispatched_at	reported_at	origin
+cp-origin-report	old-worker	$WT	stamped-branch	2026-08-24T12:00:00Z		terminal
+EOF
+"$CP" jobs reported cp-origin-report >/dev/null
+origin_report_row="$(awk -F'\t' '$1=="cp-origin-report"{print; exit}' "$CP_JOBS_FILE")"
+if printf '%s\n' "$origin_report_row" | awk -F'\t' '
+  $6 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ && $7 == "terminal" {
+    ok = 1
+  }
+  END { exit ok ? 0 : 1 }
+'; then
+  origin_nf="$(printf '%s\n' "$origin_report_row" | awk -F'\t' '{print NF; exit}')"
+  if [[ "$origin_nf" == "7" ]]; then
+    ok "reported preserves origin when reported_at was empty (NF==7, ISO \$6, \$7=origin)"
+  else
+    fail "reported preserves origin when reported_at was empty (want NF==7, got NF=$origin_nf row=$origin_report_row)"
+  fi
+else
+  fail "reported preserves origin when reported_at was empty (row=$origin_report_row)"
+fi
+
 # confirmation must not go empty when later rows follow the target in jobs.tsv
 "$CP" jobs add cp-before worker=before worktree="$TMP/wt" branch=feat/before >/dev/null
 "$CP" jobs add cp-after worker=after worktree="$TMP/wt" branch=feat/after >/dev/null
