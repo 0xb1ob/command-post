@@ -40,6 +40,15 @@ func NewEnv() (*Env, error) {
 	root := filepath.Dir(filepath.Dir(prog))
 	home := os.Getenv("CP_HOME")
 	if home == "" {
+		// An installed binary at <prefix>/bin/cmdp derives root=<prefix>, which
+		// is not a checkout: data/, state/ and bin/install.sh are absent, and
+		// every path below would silently point at a home that does not exist.
+		// bin/cmdp exports CP_HOME; a bare `cmdp` off PATH does not.
+		if _, err := os.Stat(filepath.Join(root, "bin", "install.sh")); err != nil {
+			return nil, failError(
+				"no command-post home: %s is an install prefix, not a checkout.\n"+
+					"       run the checkout's bin/cmdp, or set CP_HOME to it", root)
+		}
 		home = root
 		if _, err := os.Stat(home); err == nil {
 			if resolved, err := filepath.EvalSymlinks(home); err == nil {

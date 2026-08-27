@@ -322,6 +322,35 @@ else
   fail "doctor JSON muxa version mismatch (out=$out)"
 fi
 
+# A bare `cmdp` off PATH gets root=<install prefix>, which is not a checkout.
+# It must fail closed rather than silently operating on a phantom home.
+prefix="$TMP/prefix"
+mkdir -p "$prefix/bin"
+if [[ -x "$ROOT/bin/.cmdp-bin" ]]; then
+  /bin/cp "$ROOT/bin/.cmdp-bin" "$prefix/bin/cmdp"
+  out="$(cd "$TMP" && env -u CP_HOME "$prefix/bin/cmdp" doctor 2>&1 || true)"
+  case "$out" in
+    *"is an install prefix, not a checkout"*)
+      ok "bare cmdp with no CP_HOME fails closed on an install prefix" ;;
+    *) fail "bare cmdp with no CP_HOME fails closed (out=$out)" ;;
+  esac
+  case "$out" in
+    *"set CP_HOME"*) ok "the failure names the fix (bin/cmdp or CP_HOME)" ;;
+    *) fail "the failure names the fix (out=$out)" ;;
+  esac
+  # A prefix that IS a checkout keeps working with no CP_HOME.
+  mkdir -p "$prefix/bin"
+  printf '#!/usr/bin/env bash\nCMDP_VERSION_PIN="0.3.0"\n' > "$prefix/bin/install.sh"
+  out="$(cd "$TMP" && env -u CP_HOME "$prefix/bin/cmdp" doctor 2>&1 || true)"
+  case "$out" in
+    *"is an install prefix, not a checkout"*)
+      fail "a prefix containing bin/install.sh is accepted as a home (out=$out)" ;;
+    *) ok "a prefix containing bin/install.sh is accepted as a home" ;;
+  esac
+else
+  fail "bare-cmdp checks need bin/.cmdp-bin (build it first)"
+fi
+
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2
   exit 1
