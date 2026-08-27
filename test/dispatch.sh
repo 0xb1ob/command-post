@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp dispatch. muxa and treehouse are PATH shims; git
+# Unit tests for bin/cmdp dispatch. muxa and treehouse are PATH shims; git
 # runs against temp clones. Never touches the live broker, HOME .beads,
 # or real worktrees. Run: test/dispatch.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 
@@ -288,7 +288,7 @@ set_test_path
 expect_rc_msg 2 "Install one of:" "missing worker CLI names install targets" \
   "$CP" dispatch --project demo --br-id job-nocli --task-file "$TMP/task.txt"
 set_test_path
-expect_rc_msg 2 "bin/cp doctor" "missing worker CLI names bin/cp doctor" \
+expect_rc_msg 2 "bin/cmdp doctor" "missing worker CLI names bin/cmdp doctor" \
   "$CP" dispatch --project demo --br-id job-nocli2 --task-file "$TMP/task.txt"
 if grep -q 'get' "$CP_TEST_TH_LOG"; then
   fail "missing agent does not call treehouse get"

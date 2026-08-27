@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -259,11 +259,11 @@ func cpMuxaPinnedVersion(e *Env) string {
 	return readInstallPin(e, `MUXA_VERSION_PIN="`, `"`, false)
 }
 
-func cpPinnedVersion(e *Env) string {
+func cmdpPinnedVersion(e *Env) string {
 	if v := os.Getenv("CP_VERSION_PIN"); v != "" {
 		return strings.TrimPrefix(v, "v")
 	}
-	return readInstallPin(e, `CP_VERSION_PIN="`, `"`, false)
+	return readInstallPin(e, `CMDP_VERSION_PIN="`, `"`, false)
 }
 
 func readInstallPin(e *Env, prefix, suffix string, stripV bool) string {
@@ -298,7 +298,7 @@ func muxaVersionMatches(e *Env) bool {
 	return fields[0] == cpMuxaPinnedVersion(e)
 }
 
-func cpVersionMatches() bool {
+func cmdpVersionMatches() bool {
 	want := os.Getenv("CP_VERSION_PIN")
 	if want == "" {
 		return true

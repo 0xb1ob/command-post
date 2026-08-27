@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"context"
@@ -337,7 +337,7 @@ func statusServe(e *Env, port int) error {
 	}
 	boundPort := ln.Addr().(*net.TCPAddr).Port
 	fmt.Printf("http://127.0.0.1:%d/\n", boundPort)
-	fmt.Fprintln(os.Stderr, "[cp] Ctrl-C to stop")
+	fmt.Fprintln(os.Stderr, "[cmdp] Ctrl-C to stop")
 	srv := &http.Server{Handler: mux}
 	go func() {
 		<-serveSignals()

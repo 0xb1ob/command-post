@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -532,7 +532,7 @@ func CmdThreads(e *Env, args []string) error {
 			return err
 		}
 		if _, ok := threadLookup(e, args[1]); !ok {
-			return failError("no thread bound to origin %s — bind it first (bin/cp threads bind)", args[1])
+			return failError("no thread bound to origin %s — bind it first (bin/cmdp threads bind)", args[1])
 		}
 		return CmdStatus(e, append([]string{"--origin", args[1]}, args[2:]...))
 	case "log":

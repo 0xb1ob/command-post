@@ -7,7 +7,7 @@ started it": start the parent at login and leave it running.
 
 Two artifacts, both inert until you act:
 
-- `scripts/cp-parent-start.sh` — checks the home, runs `bin/cp doctor`
+- `scripts/cp-parent-start.sh` — checks the home, runs `bin/cmdp doctor`
   advisorily, and execs the agent CLI **in the pane it is already in**.
 - `share/launchd/com.command-post.parent.plist.example` — an example login item
   that makes that pane.
@@ -56,4 +56,4 @@ while offline was not received — repeat if still wanted") and execute nothing.
 Replaying stale events after a wake is the thing this design refuses.
 
 A laptop that sleeps mid-job orphans its workers exactly as it does today;
-`bin/cp status` and `treehouse` recovery are unchanged.
+`bin/cmdp status` and `treehouse` recovery are unchanged.

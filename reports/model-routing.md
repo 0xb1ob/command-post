@@ -1,7 +1,7 @@
 # Per-job model rubric
 
 Contract: [AGENTS.md Model routing](../AGENTS.md#model-routing).
-Allowlist, catalog, and `--scope`/`--risk` live in `bin/cp`; this table is the
+Allowlist, catalog, and `--scope`/`--risk` live in `bin/cmdp`; this table is the
 transcribable pick. `data/routing.tsv` role rows skip it (operator pin).
 `-- CMD` is rule 0 (family still must be in `allow`).
 
@@ -9,7 +9,7 @@ Inputs: `role` (researcher|implementer|gate-reviewer), `kind` (research|ship),
 `delivery` (unused by the pick), `scope` (S|M|L, default S), `risk` (low|high,
 default low), `cli` kind (`cursor`|`claude`), cached catalog, `allow`.
 
-First match wins. Gate stays cursor-only in `bin/cp gate`; Claude column for
+First match wins. Gate stays cursor-only in `bin/cmdp gate`; Claude column for
 gate-reviewer is for doctor / a future hop, not a gate argv0 rewrite.
 
 | # | Rule | Criteria | cursor kind | claude kind |
@@ -28,10 +28,10 @@ Tie-breakers when a named slug is missing from a **present** catalog:
 (a) same family, same base, nearest effort (`high` → `xhigh` → `medium`);
 (b) same family, newest base version; (c) next family in `prefer.<kind>`;
 (d) fail closed exit 2. Each downgrade prints
-`[cp] routing: substituted X → Y (reason)`.
+`[cmdp] routing: substituted X → Y (reason)`.
 
 No catalog (offline / first run): print
-`[cp] models: no catalog for ARGV0 — slug not validated` and proceed.
+`[cmdp] models: no catalog for ARGV0 — slug not validated` and proceed.
 `CP_MODELS_VALIDATE=off` skips membership even when a catalog exists.
 Claude kind with a non-Anthropic slug always exits 2.
 

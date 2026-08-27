@@ -19,14 +19,14 @@ jobs:
           go-version: "1.21"
           cache: false
 
-      - name: Build cp
+      - name: Build cmdp
         env:
           CP_VERSION: "0.1.0"
           CP_COMMIT: "ci"
         run: |
           go build \
-            -ldflags="-X github.com/0xb1ob/command-post/internal/cp.Version=${CP_VERSION} -X github.com/0xb1ob/command-post/internal/cp.Commit=${CP_COMMIT}" \
-            -o bin/.cp-bin ./cmd/cp
+            -ldflags="-X github.com/0xb1ob/command-post/internal/cmdp.Version=${CP_VERSION} -X github.com/0xb1ob/command-post/internal/cmdp.Commit=${CP_COMMIT}" \
+            -o bin/.cmdp-bin ./cmd/cmdp
 
       - uses: actions/setup-python@v5
         with:

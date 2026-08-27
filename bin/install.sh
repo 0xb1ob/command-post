@@ -10,13 +10,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
-# The command-post CLI is itself named `cp` and lands in $BIN, which is on PATH
-# ahead of /bin. Every POSIX copy in this script must therefore be explicit.
+# The command-post CLI used to install as `cp` into $BIN, which is on PATH ahead
+# of /bin, shadowing POSIX cp for the whole shell. It is now `cmdp`, so nothing
+# in this repo shadows cp any more. This explicit POSIX-copy indirection stays as
+# belt-and-braces: it keeps install.sh working on a machine that still has the
+# old `cp` binary in $BIN (remove_legacy_cp_binary below clears it).
 COPY="$(command -v /bin/cp || command -v /usr/bin/cp)"
 [[ -x "$COPY" ]] || { echo "[install] fatal: no POSIX cp found" >&2; exit 1; }
 
 MUXA_VERSION_PIN="1.0.19"
-CP_VERSION_PIN="0.2.0"
+CMDP_VERSION_PIN="0.3.0"
 BR_VERSION_PIN="v0.5.2"
 BR_VERSION="${BR_VERSION_PIN#v}"
 
@@ -140,7 +143,7 @@ ensure_muxa_hooks() {
   done
 }
 
-cp_platform() {
+cmdp_platform() {
   local os arch
   case "$(uname -s)" in
     Darwin) os=darwin ;;
@@ -155,39 +158,95 @@ cp_platform() {
   printf '%s-%s' "$os" "$arch"
 }
 
-cp_version_matches() {
-  command -v cp >/dev/null 2>&1 || return 1
+cmdp_version_matches() {
+  command -v cmdp >/dev/null 2>&1 || return 1
   local ver
-  ver="$(cp version 2>/dev/null | awk '{print $2}')"
-  [[ "$ver" == "$CP_VERSION_PIN" ]]
+  ver="$(cmdp version 2>/dev/null | awk '{print $2}')"
+  [[ "$ver" == "$CMDP_VERSION_PIN" ]]
 }
 
-install_cp() {
-  local plat asset url dest
-  if cp_version_matches; then
-    log "cp: already installed ($(cp version 2>/dev/null | head -1))"
+# Migration: the CLI used to install as $BIN/cp, which shadowed POSIX cp for the
+# operator's entire shell (it broke this script's own `cp -R`). Remove that
+# binary — but only when we can prove it is ours. Fail safe: anything we cannot
+# identify is left alone with an explicit path for the operator to inspect.
+remove_legacy_cp_binary() {
+  local legacy="$BIN/cp"
+  [[ -e "$legacy" || -L "$legacy" ]] || return 0
+
+  # Never touch a system cp. $BIN/cp is by definition not /bin/cp, but a symlink
+  # there is possible, so resolve before deciding.
+  local resolved
+  resolved="$(cd "$(dirname "$legacy")" && pwd -P)/$(basename "$legacy")"
+  if [[ -L "$legacy" ]]; then
+    local target
+    target="$(readlink "$legacy")"
+    case "$target" in
+      /bin/cp | /usr/bin/cp | /usr/local/bin/cmdp | */coreutils*)
+        warn "legacy cp: $legacy is a symlink to $target (not ours) — left in place"
+        return 0
+        ;;
+    esac
+  fi
+  case "$resolved" in
+    /bin/cp | /usr/bin/cp)
+      warn "legacy cp: refusing to touch system binary $resolved"
+      return 0
+      ;;
+  esac
+
+  # A shell script is not our release binary (the old bin/cmdp launcher was one,
+  # but it never installed into $BIN). Leave it.
+  if [[ "$(head -c 2 "$legacy" 2>/dev/null)" == '#!' ]]; then
+    warn "legacy cp: $legacy is a shell script, not our binary — left in place. Inspect and remove it by hand if it shadows POSIX cp."
     return 0
   fi
-  plat="$(cp_platform)" || die "cp: unsupported platform $(uname -s)/$(uname -m)"
-  asset="cp-${plat}"
+
+  # Ours iff it answers `version` with a command-post version banner. The old
+  # binary printed "cp <version> (<commit>)"; the new one prints "cmdp ...".
+  # Never let a non-zero exit here abort the install (set -e): a POSIX cp given
+  # `version` fails, and that is exactly the not-ours case we want to warn on.
+  local banner=""
+  if [[ -x "$legacy" ]]; then
+    banner="$("$legacy" version 2>/dev/null | head -1)" || banner=""
+  fi
+  case "$banner" in
+    cp\ * | cmdp\ *)
+      rm -f "$legacy"
+      log "legacy cp: removed $legacy (\"$banner\") — it shadowed POSIX cp on PATH; the CLI is now cmdp"
+      ;;
+    *)
+      warn "legacy cp: $legacy is not identifiable as the command-post CLI — left in place. If it shadows POSIX cp, remove it by hand: rm $legacy"
+      ;;
+  esac
+}
+
+install_cmdp() {
+  local plat asset url dest
+  remove_legacy_cp_binary
+  if cmdp_version_matches; then
+    log "cmdp: already installed ($(cmdp version 2>/dev/null | head -1))"
+    return 0
+  fi
+  plat="$(cmdp_platform)" || die "cmdp: unsupported platform $(uname -s)/$(uname -m)"
+  asset="cmdp-${plat}"
   if [[ -n "${CP_INSTALL_URL:-}" ]]; then
     url="$CP_INSTALL_URL"
   else
-    url="https://github.com/0xb1ob/command-post/releases/download/v${CP_VERSION_PIN}/${asset}"
+    url="https://github.com/0xb1ob/command-post/releases/download/v${CMDP_VERSION_PIN}/${asset}"
   fi
-  dest="$BIN/cp"
-  log "cp: installing ${CP_VERSION_PIN} (${asset}) from release"
+  dest="$BIN/cmdp"
+  log "cmdp: installing ${CMDP_VERSION_PIN} (${asset}) from release"
   curl -fsSL "$url" -o "$dest" || {
-    if [[ -x "$ROOT/bin/.cp-bin" ]] && "$ROOT/bin/.cp-bin" version >/dev/null 2>&1; then
-      log "cp: release fetch failed; using checkout binary at $ROOT/bin/.cp-bin"
-      "$COPY" "$ROOT/bin/.cp-bin" "$dest"
+    if [[ -x "$ROOT/bin/.cmdp-bin" ]] && "$ROOT/bin/.cmdp-bin" version >/dev/null 2>&1; then
+      log "cmdp: release fetch failed; using checkout binary at $ROOT/bin/.cmdp-bin"
+      "$COPY" "$ROOT/bin/.cmdp-bin" "$dest"
     else
-      die "cp install failed (could not fetch $url). Set CP_INSTALL_URL or build with: go build -o bin/.cp-bin ./cmd/cp"
+      die "cmdp install failed (could not fetch $url). Set CP_INSTALL_URL or build with: go build -o bin/.cmdp-bin ./cmd/cmdp"
     fi
   }
   chmod +x "$dest"
-  if ! cp_version_matches; then
-    die "cp: version mismatch after install (want ${CP_VERSION_PIN})"
+  if ! cmdp_version_matches; then
+    die "cmdp: version mismatch after install (want ${CMDP_VERSION_PIN})"
   fi
 }
 
@@ -254,14 +313,14 @@ install_deps() {
   require_prereqs
   ensure_bin_dir
   install_muxa
-  install_cp
+  install_cmdp
   install_br
   install_treehouse
 
   # Re-scan PATH so verify sees freshly linked binaries.
   export PATH="$BIN:$PATH"
   verify_tool muxa
-  verify_tool cp
+  verify_tool cmdp
   verify_tool br
   verify_tool treehouse
 }
@@ -415,9 +474,9 @@ EOF
   ensure_muxa_hooks
 
   # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline
-  # or if the pinned release predates `cp models` (v0.1.0 does).
-  if [[ -x "$ROOT/bin/cp" ]]; then
-    "$ROOT/bin/cp" models refresh --quiet >/dev/null 2>&1 || true
+  # or if the pinned release predates `cmdp models` (v0.1.0 does).
+  if [[ -x "$ROOT/bin/cmdp" ]]; then
+    "$ROOT/bin/cmdp" models refresh --quiet >/dev/null 2>&1 || true
   fi
 }
 
@@ -487,7 +546,7 @@ copy_skills_to_harness() {
 
 # treehouse get --lease keys off the git repo of cwd. A leftover clone at
 # $HOME/<name> (e.g. ~/command-post) can hand out a worktree that fails
-# bin/cp check ("belongs to another repo"). Warn; do not delete anything.
+# bin/cmdp check ("belongs to another repo"). Warn; do not delete anything.
 abs_git_common() {
   local d="$1" g parent
   g="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1

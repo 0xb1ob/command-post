@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 func assertCleanResearch(wt, branch string) error {
 	dirty, _ := gitOutput(wt, "status", "--porcelain")
 	if strings.TrimSpace(dirty) != "" {
-		fmt.Fprintf(os.Stderr, "[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n", wt)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n", wt)
 		os.Exit(1)
 	}
 	base := defaultBaseBranch(wt)
@@ -19,14 +19,14 @@ func assertCleanResearch(wt, branch string) error {
 		if local == remote {
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n", wt, branch, branch)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n", wt, branch, branch)
 		os.Exit(1)
 	}
 	if upstream, err := gitOutput(wt, "rev-parse", "--abbrev-ref", "--verify", "@{u}"); err == nil && upstream != "" {
 		local, _ := gitOutput(wt, "rev-parse", "HEAD")
 		remote, _ := gitOutput(wt, "rev-parse", "@{u}")
 		if local != remote {
-			fmt.Fprintf(os.Stderr, "[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n", wt, branch, truncHash(local), upstream)
+			fmt.Fprintf(os.Stderr, "[cmdp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n", wt, branch, truncHash(local), upstream)
 			os.Exit(1)
 		}
 	}
@@ -37,7 +37,7 @@ func assertCleanResearch(wt, branch string) error {
 		}
 	}
 	if ahead != "" && ahead != "0" {
-		fmt.Fprintf(os.Stderr, "[cp] error: research branch %s has %s unpushed commit(s) on %s — keep the lease; reset or push, then retry teardown\n", branch, ahead, wt)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: research branch %s has %s unpushed commit(s) on %s — keep the lease; reset or push, then retry teardown\n", branch, ahead, wt)
 		os.Exit(1)
 	}
 	return nil
@@ -46,7 +46,7 @@ func assertCleanResearch(wt, branch string) error {
 func assertCleanAndPushed(wt, branch string) error {
 	dirty, _ := gitOutput(wt, "status", "--porcelain")
 	if strings.TrimSpace(dirty) != "" {
-		fmt.Fprintf(os.Stderr, "[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n", wt)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n", wt)
 		os.Exit(1)
 	}
 	local, _ := gitOutput(wt, "rev-parse", "HEAD")
@@ -65,11 +65,11 @@ func assertCleanAndPushed(wt, branch string) error {
 			return nil
 		}
 		upstream, _ := gitOutput(wt, "rev-parse", "--abbrev-ref", "@{u}")
-		fmt.Fprintf(os.Stderr, "[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n", wt, branch, truncHash(local), upstream)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n", wt, branch, truncHash(local), upstream)
 		os.Exit(1)
 	}
 	if _, err := gitOutput(wt, "rev-parse", "--verify", "--quiet", "origin/"+branch); err == nil {
-		fmt.Fprintf(os.Stderr, "[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n", wt, branch, branch)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n", wt, branch, branch)
 		os.Exit(1)
 	}
 	headBranch, _ := gitOutput(wt, "symbolic-ref", "--quiet", "--short", "HEAD")
@@ -82,7 +82,7 @@ func assertCleanAndPushed(wt, branch string) error {
 			}
 		}
 	}
-	fmt.Fprintf(os.Stderr, "[cp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n", wt, branch)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n", wt, branch)
 	os.Exit(1)
 	return nil
 }
@@ -122,16 +122,16 @@ func CmdTeardown(e *Env, args []string) error {
 	}
 	row, ok := jobsLookup(e, id)
 	if !ok {
-		return failError("no runtime row for %s — nothing to tear down (bin/cp jobs list)", id)
+		return failError("no runtime row for %s — nothing to tear down (bin/cmdp jobs list)", id)
 	}
 	if row.Worktree == "" {
-		return failError("runtime row %s has an empty worktree — keep the lease; fix bin/cp jobs", id)
+		return failError("runtime row %s has an empty worktree — keep the lease; fix bin/cmdp jobs", id)
 	}
 	if row.Worker == "" {
-		return failError("runtime row %s has an empty worker — keep the lease; fix bin/cp jobs", id)
+		return failError("runtime row %s has an empty worker — keep the lease; fix bin/cmdp jobs", id)
 	}
 	if row.Branch == "" {
-		return failError("runtime row %s has an empty branch — keep the lease; fix bin/cp jobs", id)
+		return failError("runtime row %s has an empty branch — keep the lease; fix bin/cmdp jobs", id)
 	}
 	if st, err := os.Stat(row.Worktree); err != nil || !st.IsDir() {
 		return failError("worktree %s is missing — keep the lease; restore the path or fix the jobs row", row.Worktree)

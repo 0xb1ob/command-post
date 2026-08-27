@@ -5,7 +5,7 @@ Use **muxa-parent** for dispatch and mail. Name **muxa-worker** in the brief you
 send (workers may not have skills installed yet).
 
 This file is the coding-job playbook: classify, lease, preflight, dispatch,
-teardown. Job ledger is **br**. `bin/cp jobs` is the runtime map
+teardown. Job ledger is **br**. `bin/cmdp jobs` is the runtime map
 (worker ⟷ worktree ⟷ branch). muxa is the transport; this repo is the
 work — see [muxa / command-post boundary](#muxa--command-post-boundary).
 Clone-and-go: start an agent CLI here and dispatch into other repos. Tracked files
@@ -63,13 +63,13 @@ When the two overlap, the tests pick one owner. They do not share the
 capability.
 
 - **Into command-post** when it does not need tmux, or when it must know
-  what a job is. [`bin/cp jobs`](bin/cp) is the jobs case: a runtime
+  what a job is. [`bin/cmdp jobs`](bin/cmdp) is the jobs case: a runtime
   worker ⟷ worktree ⟷ branch map keyed by br id. Kind, delivery, status,
   and PR URL live on the br issue — muxa is not asked to know what a job
-  is. Git preflight lives in `bin/cp check` (it does not need tmux;
-  occupancy reads `muxa who --json`). `bin/cp status [--json] [--html] [--serve [--port N]] [--origin ID]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--origin` filters to one jobs.tsv origin ([why](reports/origin-scoping.md)). `--html` embeds the JSON; `--serve` is a foreground localhost dashboard (127.0.0.1 only). Age prefers `jobs.tsv` `dispatched_at`; legacy rows fall back to `br.updated_at`. Phases `stalled` / `held` need `reported_at` — [Stalled and held workers](#stalled-and-held-workers).
+  is. Git preflight lives in `bin/cmdp check` (it does not need tmux;
+  occupancy reads `muxa who --json`). `bin/cmdp status [--json] [--html] [--serve [--port N]] [--origin ID]` is the same: a read-only fleet snapshot from `muxa who`/`broker status` + `state/jobs.tsv` + `br list --json`, zero muxa changes. `--origin` filters to one jobs.tsv origin ([why](reports/origin-scoping.md)). `--html` embeds the JSON; `--serve` is a foreground localhost dashboard (127.0.0.1 only). Age prefers `jobs.tsv` `dispatched_at`; legacy rows fall back to `br.updated_at`. Phases `stalled` / `held` need `reported_at` — [Stalled and held workers](#stalled-and-held-workers).
 - **Stays in muxa** when it is a pane or presence primitive; command-post
-  consumes that surface and applies policy. [`bin/cp`](bin/cp): "Occupancy
+  consumes that surface and applies policy. [`bin/cmdp`](bin/cmdp): "Occupancy
   is muxa dispatch --cwd's warning (same as muxa spawn --cwd); this checker
   reads muxa who --json and applies command-post policy. It does not call
   muxa dispatch or muxa spawn." Do not reimplement `muxa dispatch`. Never
@@ -105,7 +105,7 @@ Intake, classify, dispatch, wait, relay outcomes, teardown. Nothing else.
 
 - Classify (kind + delivery; pipeline vs single), match a project, clone into `projects/<name>` and register it
 - Record the job in br, then [Pre-dispatch](#pre-dispatch)
-- `bin/cp dispatch` — [First brief](#first-brief) lives in templates/; not muxa-parent's slim template, not a later `muxa send`
+- `bin/cmdp dispatch` — [First brief](#first-brief) lives in templates/; not muxa-parent's slim template, not a later `muxa send`
 - Relay outcomes ([Worker envelope](#worker-envelope) — `jobs reported` first); end every operator-facing turn with a [Status block](#status-block); capture memory under `data/` (see Memory)
 
 Never: read/write/explore project source; research or fetch URLs here (confirming a
@@ -123,7 +123,7 @@ Before dispatch, on both axes — do not blur them.
 - **delivery** — `pr`, `local`, or `pipeline`
 
 Persist on the br issue (`delivery:` required; `kind:` when it helps filtering), not
-on `bin/cp jobs`. Evidence is not authorization: a research/scout result never starts
+on `bin/cmdp jobs`. Evidence is not authorization: a research/scout result never starts
 implementation; a ship job needs its own caller authorization.
 
 ## Pipeline (research → gate → implement)
@@ -138,19 +138,19 @@ roles; the chosen delivery path owns the rigor. Ship authorization is at
 intake; gate pass is quality only, never authorization.
 
 1. Two br issues (`kind:research`, `kind:ship`, both delivery per intake). Dep-link: `br dep add <ship-id> <research-id>`.
-2. Researcher: `bin/cp dispatch --project NAME --br-id <research-id> --template research --task-file F --` frontier CLI ([Model routing](#model-routing)). Predeclared artifact: `state/artifacts/<research-id>/report.md` (`bin/cp artifact path`).
+2. Researcher: `bin/cmdp dispatch --project NAME --br-id <research-id> --template research --task-file F --` frontier CLI ([Model routing](#model-routing)). Predeclared artifact: `state/artifacts/<research-id>/report.md` (`bin/cmdp artifact path`).
 3. Wait for the envelope ([muxa] mail; [templates/README.md](templates/README.md)). HARD RULE: workers never mail the findings body. A body in mail is a contract violation — do not act on it; capture a candidate.
-4. On envelope: `bin/cp jobs reported <research-id>`, `bin/cp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cp gate <research-id>`.
-5. Verdicts (`bin/cp gate`: exit 0 pass, 10 revise, 20 escalate). Stdout JSON includes `cause` on every verdict (`null` on pass/revise; `policy`, `operational`, or `operational_persistent` on escalate — branch on this, not the reason prose):
-   - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cp teardown <research-id>`; `bin/cp artifact get <research-id> > tmpfile`; `bin/cp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI. Keep the finding in [Status block](#status-block) **Awaiting you** until the operator resolves it.
+4. On envelope: `bin/cmdp jobs reported <research-id>`, `bin/cmdp artifact add <research-id> <artifact-path>` (body → br comments; parent never reads it), then `bin/cmdp gate <research-id>`.
+5. Verdicts (`bin/cmdp gate`: exit 0 pass, 10 revise, 20 escalate). Stdout JSON includes `cause` on every verdict (`null` on pass/revise; `policy`, `operational`, or `operational_persistent` on escalate — branch on this, not the reason prose):
+   - **pass:** `br close <research-id>` with the verdict in `--reason`; the ship issue leaves `br ready`'s blocked state; `bin/cmdp teardown <research-id>`; `bin/cmdp artifact get <research-id> > tmpfile`; `bin/cmdp dispatch --project NAME --br-id <ship-id> --template ship --task-file tmpfile --` implementer CLI. Keep the finding in [Status block](#status-block) **Awaiting you** until the operator resolves it.
    - **revise:** `muxa send` the researcher the reviewer's revisions. The tool enforces one revision max — a second revise becomes escalate. Researcher stays alive until pass.
-   - **escalate (`cause: policy`):** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cp artifact get`. Rubric flags (`destructive_scope`, `scope_growth`, `blocking_unknowns`), attempt cap after one revise, or reviewer verdict escalate.
-   - **escalate (`cause: operational`):** reviewer output unparseable after one in-run retry — re-run `bin/cp gate` immediately with the same `--model`; do not surface to the caller. Only the first such escalate per artifact is treated as a transient blip.
+   - **escalate (`cause: policy`):** surface the envelope + verdict (short) to the caller and stop. Body on demand via `bin/cmdp artifact get`. Rubric flags (`destructive_scope`, `scope_growth`, `blocking_unknowns`), attempt cap after one revise, or reviewer verdict escalate.
+   - **escalate (`cause: operational`):** reviewer output unparseable after one in-run retry — re-run `bin/cmdp gate` immediately with the same `--model`; do not surface to the caller. Only the first such escalate per artifact is treated as a transient blip.
    - **escalate (`cause: operational_persistent`):** the immediately prior gate run also ended in `operational` — the reviewer model likely cannot meet the parse contract. Re-run once with `--model cursor-grok-4.6-high-fast`; if that still returns `operational` or `operational_persistent`, surface to the caller as a gate-tool failure and stop looping.
 
 Context safety: the parent never reads artifact bodies. Never run `br show` /
 `br comments list` on artifact-bearing issues — `br show --json` inlines full
-comment bodies (PR #42). `bin/cp artifact get` redirected to a file is the
+comment bodies (PR #42). `bin/cmdp artifact get` redirected to a file is the
 only sanctioned reader.
 
 Retry: implementer dirty/red → re-dispatch a fresh pane with the SAME brief
@@ -161,13 +161,13 @@ path, no envelope) → parent may `artifact add` + `gate` from that path.
 
 ## Pre-dispatch
 
-**Path:** `bin/cp dispatch` — lease-bind, branch=br-id, `bin/cp check`,
-`bin/cp jobs add`, one-tail receipt. Occupied-cwd warning is muxa's
-(`muxa dispatch --cwd`, same as `muxa spawn --cwd`). `bin/cp check` fail-closes
+**Path:** `bin/cmdp dispatch` — lease-bind, branch=br-id, `bin/cmdp check`,
+`bin/cmdp jobs add`, one-tail receipt. Occupied-cwd warning is muxa's
+(`muxa dispatch --cwd`, same as `muxa spawn --cwd`). `bin/cmdp check` fail-closes
 clone/worktree facts and promote-not-spawn; it does not dispatch, send mail, or
-write `bin/cp jobs`. Do not reimplement `muxa dispatch`.
+write `bin/cmdp jobs`. Do not reimplement `muxa dispatch`.
 
-`bin/cp` unavailable: `cd projects/<name>` then `treehouse get --lease` (no path — cwd keys the pool); bind the path; `bin/cp check --project NAME "$worktree"`; `muxa dispatch --cwd "$worktree" --brief-file`; `bin/cp jobs add`. Do not retype the path. Policy: [Promote vs new lease](#promote-vs-new-lease). `bin/cp check` reads `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; else fail-closed).
+`bin/cmdp` unavailable: `cd projects/<name>` then `treehouse get --lease` (no path — cwd keys the pool); bind the path; `bin/cmdp check --project NAME "$worktree"`; `muxa dispatch --cwd "$worktree" --brief-file`; `bin/cmdp jobs add`. Do not retype the path. Policy: [Promote vs new lease](#promote-vs-new-lease). `bin/cmdp check` reads `muxa who --json` (`state=idle|busy|ghost`; idle|busy → promote; ghost → `muxa kill NAME|ID` or restart CLI; else fail-closed).
 
 ### Promote vs new lease
 
@@ -182,7 +182,7 @@ same repo AND same worktree still held (lease not returned) AND same model
 
 worktree was returned, OR the job is independent
   (different repo, or a second worktree on the same repo)
-  → bin/cp lease --project NAME
+  → bin/cmdp lease --project NAME
   → bind the printed path; muxa dispatch --cwd "$worktree" (sequentially, or --name)
 ```
 
@@ -190,13 +190,13 @@ Research evidence is not authorization to dispatch a second pane.
 
 ### Stale clone / "belongs to another repo"
 
-If `bin/cp check` reports **belongs to another repo**, recover. Rationale:
+If `bin/cmdp check` reports **belongs to another repo**, recover. Rationale:
 [reports/dispatch-hardening.md](reports/dispatch-hardening.md).
 
 1. `treehouse return --force <bad-worktree>`
 2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire extra clones so they are not lease cwd
-3. Re-lease: `bin/cp lease --project <name>`
-4. `bin/cp check --project <name> <worktree>` on the new path
+3. Re-lease: `bin/cmdp lease --project <name>`
+4. `bin/cmdp check --project <name> <worktree>` on the new path
 
 `git worktree add` is allowed only when **treehouse is not installed**. A treehouse
 failure is not "treehouse unavailable."
@@ -207,7 +207,7 @@ Clone on demand into `projects/<name>` (gitignored); registry is `data/projects.
 Not-yet-local: clone there, then add/update Name, Clone URL, Path (`projects/<name>`),
 Delivery (`pr` | `local` | `pipeline`), Notes. Do not clone into this repo root.
 `project:<name>` labels must match the Name column. One canonical clone per name;
-retire extra checkouts so `bin/cp lease` cannot pick them up from the wrong cwd.
+retire extra checkouts so `bin/cmdp lease` cannot pick them up from the wrong cwd.
 
 ## Worker dispatch
 
@@ -216,25 +216,25 @@ Follow [Pre-dispatch](#pre-dispatch). One worktree per worker, from `projects/<n
 Pass only the CLI and optional `--model`; do not pass trust, yolo, skip-permissions,
 approval-mode, hook paths, or `--workspace`. `muxa spawn` remains for a pane with no
 brief; jobs here always have a brief, so the path is `muxa dispatch`.
-`bin/cp dispatch` is that command (it calls `muxa dispatch`).
+`bin/cmdp dispatch` is that command (it calls `muxa dispatch`).
 
 ### Model routing
 
-Resolution order: explicit `-- CMD` override (family must be in `allow`); then `data/routing.tsv` row (operator pin — skips the rubric); then shipped/derived CLI with the per-job rubric (`--scope S|M|L`, `--risk low|high`, default S/low — [table](reports/model-routing.md)). Allowlist default `cursor,grok,anthropic` (`data/models.conf`, `CP_MODELS_ALLOW`). Catalog is `bin/cp models` (`data/models/<argv0>.tsv`); slug check is fail-closed only when a catalog exists (offline: stderr note, proceed). Claude kind rejects non-Anthropic slugs. Dispatch prints `source=` (`override`|`routing`|`shipped`|`derived`) plus `model=` `family=` `catalog=` `rule=` before lease. `bin/cp doctor` Models section. One installed CLI → all roles, no config. Several installed → documented preference (`agent`, `cursor-agent`, `claude`). Per-job override: `bin/cp dispatch ... -- CMD...`. `CP_GATE_CMD` still wins for gate. Dispatch probes argv[0] before lease — missing CLI exits 2 with no orphan branch.
+Resolution order: explicit `-- CMD` override (family must be in `allow`); then `data/routing.tsv` row (operator pin — skips the rubric); then shipped/derived CLI with the per-job rubric (`--scope S|M|L`, `--risk low|high`, default S/low — [table](reports/model-routing.md)). Allowlist default `cursor,grok,anthropic` (`data/models.conf`, `CP_MODELS_ALLOW`). Catalog is `bin/cmdp models` (`data/models/<argv0>.tsv`); slug check is fail-closed only when a catalog exists (offline: stderr note, proceed). Claude kind rejects non-Anthropic slugs. Dispatch prints `source=` (`override`|`routing`|`shipped`|`derived`) plus `model=` `family=` `catalog=` `rule=` before lease. `bin/cmdp doctor` Models section. One installed CLI → all roles, no config. Several installed → documented preference (`agent`, `cursor-agent`, `claude`). Per-job override: `bin/cmdp dispatch ... -- CMD...`. `CP_GATE_CMD` still wins for gate. Dispatch probes argv[0] before lease — missing CLI exits 2 with no orphan branch.
 
 ### First brief
 
 Contract: [templates/](templates/README.md) (`brief-ship.md` is the old inline
-body; placeholder table there). `bin/cp dispatch --template` substitutes.
+body; placeholder table there). `bin/cmdp dispatch --template` substitutes.
 This contract **wins** over muxa-parent's slim dispatch template. Pass it with
 `--brief-file` (stdin also works); never a positional string.
 
-`bin/cp dispatch` stdout is `{br_id,worker,worktree,branch,state,receipt}`. Exit 0 and `state: dispatched`
+`bin/cmdp dispatch` stdout is `{br_id,worker,worktree,branch,state,receipt}`. Exit 0 and `state: dispatched`
 mean the pane exists and the brief is queued, not received. `state=dispatched` + `receipt=unconfirmed`/`unknown`
 is a VALID success — wait for mail; never re-dispatch. `state=dispatched → queued`.
 
 Receipt is kind-aware (`muxa who --json` kind, never the agent CMD or pane text). Cursor: one `muxa tail NAME`
-for the token `Branch: ${branch}` (`bin/cp dispatch` sets branch=br-id) or the bare branch in the footer.
+for the token `Branch: ${branch}` (`bin/cmdp dispatch` sets branch=br-id) or the bare branch in the footer.
 Claude: never the bare branch (footer always shows cwd+branch — false positive) or the token (claude
 consumes the brief — false negative); use footer `Context: N%`, nonzero once consumed, else `receipt=unknown`
 — one check can't split a drop from claude's slow boot, so it never claims not-received. Do not loop tail.
@@ -251,14 +251,14 @@ Ordinary `[muxa]` from the broker — wake on it. Correlate with dispatch JSON
 
 | Shape | Turn | Recovery |
 | --- | --- | --- |
-| Never ready | bare `[muxa] from=broker` | Child never ready; brief not pasted. From outside the worktree: `bin/cp teardown <br-id>`; report failure. No retry, no `muxa send` into cold pane, no auto-restart. |
+| Never ready | bare `[muxa] from=broker` | Child never ready; brief not pasted. From outside the worktree: `bin/cmdp teardown <br-id>`; report failure. No retry, no `muxa send` into cold pane, no auto-restart. |
 | Dispatch refused | `dispatch refused: … composer holds foreign input` | Healthy pane; foreign composer text blocked paste. **Not** never-ready — teardown is wrong. Operator clears composer; `muxa send --file brief.txt NAME`. No re-lease or re-dispatch. |
 | Dispatch unsubmitted | `dispatch unsubmitted:` | Positive evidence paste was not submitted (muxa 1.0.11; unlike the old anti-correlated broker warning — act on this). `muxa send NAME "Proceed with the job in the brief above."` — no re-dispatch or re-lease. Do not check broker `pending/`. |
 
 ### While they run
 
 - Never poll. Wake on `[muxa]` mail — including [broker parent turns](#broker-parent-turns).
-- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phases `stalled` / `held` in `bin/cp status` are advisory — [Stalled and held workers](#stalled-and-held-workers).
+- Unknown or stuck: inspect **once** with `muxa tail NAME` (`-n N` for last N history lines). Unknown name exits 2 — inspect, do not assume idle or busy, and do not loop. Phases `stalled` / `held` in `bin/cmdp status` are advisory — [Stalled and held workers](#stalled-and-held-workers).
 - Do not auto-restart a stuck worker. Report it.
 - `muxa send` is data only. Interrupt, kill, or restart is pane control (`muxa kill NAME|ID`) — never a chat message. Do not kill a worker that is still on a job.
 - Freeze scope once validation starts. New scope is a new job. You never do the worker job.
@@ -271,7 +271,7 @@ Ordinary `[muxa]` from the broker — wake on it. Correlate with dispatch JSON
 ### Worker envelope
 
 On the worker's result mail (envelope — PR URL, etc.; never the findings body):
-**`bin/cp jobs reported <br-id>`** first, before relay and before teardown
+**`bin/cmdp jobs reported <br-id>`** first, before relay and before teardown
 (idempotent; stamps `reported_at`).
 
 **`delivery:pr`:** after `jobs reported`, keep worker and lease alive until CI
@@ -297,8 +297,8 @@ kill or re-dispatch.
 
 ### Teardown
 
-**Path:** `bin/cp teardown <br-id>` — ship: clean+pushed; `kind:research`: clean+no local commits ([why](reports/teardown-research.md)). `treehouse return --force`
-from outside the worktree, `muxa kill NAME|ID`, `bin/cp jobs done`, drops
+**Path:** `bin/cmdp teardown <br-id>` — ship: clean+pushed; `kind:research`: clean+no local commits ([why](reports/teardown-research.md)). `treehouse return --force`
+from outside the worktree, `muxa kill NAME|ID`, `bin/cmdp jobs done`, drops
 `state/artifacts/<id>`. Does not close the br issue (PR URL on `br close`).
 For **`delivery:pr`**, teardown only after the [hold](#worker-envelope) ends
 (br closed or dropped) — not when the worker first mails.
@@ -313,14 +313,14 @@ do not trust three-dot `git diff origin/main...branch` after squash. Verify MERG
 empty `git ls-remote --heads origin <branch>`, and empty two-dot
 `git diff <branch> origin/main` — then fallback teardown ([recovery](reports/operating-knowledge.md#teardown-merged-auto-deleted-head-branch)).
 
-`bin/cp` unavailable:
+`bin/cmdp` unavailable:
 
 ```bash
 treehouse return --force <worktree>
 muxa kill NAME
 ```
 
-then `bin/cp jobs done <br-id>` (no `pr=`).
+then `bin/cmdp jobs done <br-id>` (no `pr=`).
 
 Report outcomes and decisions with full PR URLs. Never paste worker dumps. Stop
 after two ping-pongs unless a decision is still open — an open row in
@@ -373,20 +373,20 @@ Example (idle session):
 | — | none | — |
 ```
 
-This is not `bin/cp status` (live fleet snapshot). The parent **writes** this block for the operator; it is not rendered by a command.
+This is not `bin/cmdp status` (live fleet snapshot). The parent **writes** this block for the operator; it is not rendered by a command.
 
 ## Slack threads (origins)
 
 Terminal-only above: the operator sees every origin, a thread sees one.
 **The parent never writes to Slack.** What crosses into a thread is a templated,
-`origin`-keyed job event rendered by `bin/cp relay` from the ledger — never a parent
+`origin`-keyed job event rendered by `bin/cmdp relay` from the ledger — never a parent
 turn, never the STATUS BLOCK. No output filter on parent turns: prose, when wanted,
 is a scoped composer whose only inputs are that thread's own Slack messages, that
 origin's `jobs.tsv` rows, and those envelopes.
 
 **`br_id` is the routing key.** `state/jobs.tsv` maps `br_id → origin`
-(`bin/cp dispatch --origin`, default `terminal`); `state/threads.tsv` maps
-`origin → (channel, thread_ts)` (`bin/cp threads bind`). Missing origin, unbound
+(`bin/cmdp dispatch --origin`, default `terminal`); `state/threads.tsv` maps
+`origin → (channel, thread_ts)` (`bin/cmdp threads bind`). Missing origin, unbound
 origin, or `origin=terminal` → **post nowhere**, log locally. Posts append to
 `state/threads/<origin>.out.log` — outbound only; inbound Slack is never stored.
 
@@ -394,7 +394,7 @@ origin, or `origin=terminal` → **post nowhere**, log locally. Posts append to
 origin's job shows `blocked` with id and label redacted — `Job` cells pair br id
 with a plain-language label, and the label is the leak. Permanent until the blocker
 shares the origin or closes; that reads like a bug and is not
-([why](reports/origin-scoping.md)). Thread views: `bin/cp threads events|status`.
+([why](reports/origin-scoping.md)). Thread views: `bin/cmdp threads events|status`.
 Install is a human step, after merge: [docs/slack-install.md](docs/slack-install.md).
 
 ## Backlog (br)
@@ -402,7 +402,7 @@ Install is a human step, after merge: [docs/slack-install.md](docs/slack-install
 **GitHub Issues are the product backlog.** br does not mirror them. br tracks
 in-flight work; closed issues are queryable job history. Ad-hoc requests live
 only in br. Pass `--json` when parsing. `.beads/` is local-only — do not flush,
-commit, or push it. `bin/cp jobs` is runtime occupancy, not the restart backlog;
+commit, or push it. `bin/cmdp jobs` is runtime occupancy, not the restart backlog;
 kind, delivery, status, and PR URL live on the br issue.
 
 ### Labels
@@ -429,7 +429,7 @@ br create "<job title>" -t task -p 2 \
 ```
 
 Ad-hoc (no GitHub issue): same without `--external-ref`, add `-d "<description>"`.
-`--slug` is supported on br 0.2.19+ ([why](reports/br-slug-install.md)); install pins 0.5.2 — migrate schema before expecting `bin/cp status` to work.
+`--slug` is supported on br 0.2.19+ ([why](reports/br-slug-install.md)); install pins 0.5.2 — migrate schema before expecting `bin/cmdp status` to work.
 Use the returned id everywhere below. Notes: `br update <id> --notes "…"`. Comments:
 `br comments add <id> "…"`.
 

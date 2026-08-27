@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp teardown. muxa and treehouse are PATH shims; git
+# Unit tests for bin/cmdp teardown. muxa and treehouse are PATH shims; git
 # runs against temp clones. Never touches the live broker, HOME .beads,
 # or real worktrees. Run: test/teardown.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

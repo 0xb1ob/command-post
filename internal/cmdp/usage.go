@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"fmt"
@@ -76,7 +76,7 @@ func printDispatchUsage() {
 	fmt.Fprintf(os.Stderr, "       default CMD: from data/routing.tsv or shipped implementer default\n")
 	fmt.Fprintf(os.Stderr, "       --scope/--risk select a rubric row (default S/low); routing.tsv pins skip the rubric\n")
 	fmt.Fprintf(os.Stderr, "       --template research uses the researcher role default\n")
-	fmt.Fprintf(os.Stderr, "       worker CLI is probed before lease; missing CLI exits 2 (see bin/cp doctor)\n")
+	fmt.Fprintf(os.Stderr, "       worker CLI is probed before lease; missing CLI exits 2 (see bin/cmdp doctor)\n")
 	fmt.Fprintf(os.Stderr, "       stdout: one JSON object {br_id,worker,worktree,branch,state,receipt}\n")
 	fmt.Fprintf(os.Stderr, "       state=dispatched means the brief is queued, not received.\n")
 	fmt.Fprintf(os.Stderr, "       receipt=unconfirmed with state=dispatched is a valid success — wait for mail; never re-dispatch.\n")

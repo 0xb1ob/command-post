@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp lease. treehouse is a PATH shim; git runs against
+# Unit tests for bin/cmdp lease. treehouse is a PATH shim; git runs against
 # temp clones. Never touches the live pool. Run: test/lease.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

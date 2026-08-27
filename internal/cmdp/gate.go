@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -171,7 +171,7 @@ func runGateReviewer(e *Env, promptFile, model, outFile string) error {
 		}
 		return os.WriteFile(outFile, []byte(out), 0o644)
 	}
-	fmt.Fprintf(os.Stderr, "[cp] error: gate-reviewer CLI %q is not supported for headless gate (set CP_GATE_CMD to override)\n", bin)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: gate-reviewer CLI %q is not supported for headless gate (set CP_GATE_CMD to override)\n", bin)
 	os.Exit(2)
 	return nil
 }
@@ -400,7 +400,7 @@ func CmdGate(e *Env, args []string) error {
 	if _, err := os.Stat(rubric); err != nil {
 		return failError("missing gate rubric: %s", rubric)
 	}
-	tmpd, err := os.MkdirTemp("", "cp-gate.*")
+	tmpd, err := os.MkdirTemp("", "cmdp-gate.*")
 	if err != nil {
 		return err
 	}

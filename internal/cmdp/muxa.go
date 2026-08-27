@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -211,14 +211,14 @@ func checkOccupancy(e *Env, targets []string) error {
 		}
 		switch row.State {
 		case "idle", "busy":
-			fmt.Fprintf(os.Stderr, "[cp] promote-not-spawn: live worker %s occupies %s\n", row.Name, resolved)
-			fmt.Fprintf(os.Stderr, "[cp] same worktree still held → %s %s (do not muxa dispatch, do not treehouse get --lease)\n", "muxa", "send "+row.Name)
+			fmt.Fprintf(os.Stderr, "[cmdp] promote-not-spawn: live worker %s occupies %s\n", row.Name, resolved)
+			fmt.Fprintf(os.Stderr, "[cmdp] same worktree still held → %s %s (do not muxa dispatch, do not treehouse get --lease)\n", "muxa", "send "+row.Name)
 			collisions++
 		case "ghost":
-			fmt.Fprintf(os.Stderr, "[cp] occupied cwd: ghost worker %s on %s — muxa kill NAME|ID for a dead pane, or restart the CLI in that pane; do not promote, do not dispatch\n", row.Name, resolved)
+			fmt.Fprintf(os.Stderr, "[cmdp] occupied cwd: ghost worker %s on %s — muxa kill NAME|ID for a dead pane, or restart the CLI in that pane; do not promote, do not dispatch\n", row.Name, resolved)
 			ghostHits++
 		default:
-			fmt.Fprintf(os.Stderr, "[cp] occupied cwd: worker %s (state %s) on %s — do not dispatch\n", row.Name, row.State, resolved)
+			fmt.Fprintf(os.Stderr, "[cmdp] occupied cwd: worker %s (state %s) on %s — do not dispatch\n", row.Name, row.State, resolved)
 			collisions++
 		}
 	}
@@ -262,8 +262,8 @@ func dispatchOccupancyWarningContradiction(e *Env, stderrFile string) error {
 			return nil
 		}
 	}
-	fmt.Fprintf(os.Stderr, "[cp] fail: muxa dispatch warns cwd already has live worker %s but muxa who --json omits that worker\n", warnedName)
-	fmt.Fprintf(os.Stderr, "[cp] contradicting signals — roster absence is not proof the worker is dead; inspect with muxa tail %s before proceeding\n", warnedName)
+	fmt.Fprintf(os.Stderr, "[cmdp] fail: muxa dispatch warns cwd already has live worker %s but muxa who --json omits that worker\n", warnedName)
+	fmt.Fprintf(os.Stderr, "[cmdp] contradicting signals — roster absence is not proof the worker is dead; inspect with muxa tail %s before proceeding\n", warnedName)
 	return failError("occupancy contradiction")
 }
 
@@ -293,12 +293,12 @@ func parseDispatchJSON(raw string) (dispatchParsed, error) {
 func dispatchKillOrphanPane(e *Env, dispatchStdout string, keepLease *bool) error {
 	parsed, err := parseDispatchJSON(dispatchStdout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "[cp] error: occupancy contradiction but muxa dispatch JSON is unusable — lease kept")
+		fmt.Fprintln(os.Stderr, "[cmdp] error: occupancy contradiction but muxa dispatch JSON is unusable — lease kept")
 		*keepLease = true
 		return failError("dispatch json unusable")
 	}
 	if parsed.Worker == "" {
-		fmt.Fprintln(os.Stderr, "[cp] error: occupancy contradiction but muxa dispatch JSON has no worker name — lease kept")
+		fmt.Fprintln(os.Stderr, "[cmdp] error: occupancy contradiction but muxa dispatch JSON has no worker name — lease kept")
 		*keepLease = true
 		return failError("no worker name")
 	}
@@ -306,7 +306,7 @@ func dispatchKillOrphanPane(e *Env, dispatchStdout string, keepLease *bool) erro
 		return err
 	}
 	if err := runCmd("muxa", "kill", parsed.Worker); err != nil {
-		fmt.Fprintf(os.Stderr, "[cp] error: occupancy contradiction — muxa kill %s failed; lease kept on worktree\n", parsed.Worker)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: occupancy contradiction — muxa kill %s failed; lease kept on worktree\n", parsed.Worker)
 		*keepLease = true
 		return err
 	}

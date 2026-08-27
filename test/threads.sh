@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp threads and bin/cp relay: the Slack steering plane's
+# Unit tests for bin/cmdp threads and bin/cmdp relay: the Slack steering plane's
 # outbound half. No Slack app, no live credentials, no network to slack.com --
 # CP_SLACK_API_BASE points chat.postMessage at a local python stub, so the post
 # path is exercised for real while staying offline. Sources are stubbed the same
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

@@ -59,7 +59,7 @@ has "one \`muxa tail NAME\`" "receipt is one muxa tail, not a loop"
 has "Do not loop tail" "playbook forbids looping muxa tail"
 has "Branch: \${branch}" "brief carries a branch receipt token"
 has "have a brief, so the path is \`muxa dispatch\`" "jobs with a brief use dispatch, not spawn"
-has "bin/cp lease --project" "manual lease uses bin/cp lease"
+has "bin/cmdp lease --project" "manual lease uses bin/cmdp lease"
 has "do not muxa dispatch, do not treehouse get --lease" "promote-not-spawn forbids a second dispatch"
 has "muxa kill NAME|ID" "teardown pane removal is muxa kill"
 has "treehouse return --force <worktree>" "teardown returns the lease with --force"
@@ -68,7 +68,7 @@ has "belongs to another repo" "stale-clone recovery names belongs to another rep
 has "Parent only; finished worker only; outside the worktree" "teardown actor and place are constrained"
 has "there is nothing to trigger manually" "delivery is the broker's; nothing to trigger manually"
 
-has "bin/cp jobs reported" "playbook requires jobs reported on worker envelope"
+has "bin/cmdp jobs reported" "playbook requires jobs reported on worker envelope"
 has "### Worker envelope" "worker envelope section exists"
 has "before relay and before teardown" "jobs reported is before relay and teardown"
 has "delivery:pr" "delivery:pr hold rule is documented"
@@ -98,7 +98,7 @@ has "When required:" "when the block is required is stated"
 has "When omitted:" "when the block may be omitted is stated"
 has "Keep turns short" "status block coexists with short parent turns"
 has "Never paste worker dumps into the block" "status block is not for worker dumps"
-has "This is not \`bin/cp status\`" "status block is distinct from bin/cp status"
+has "This is not \`bin/cmdp status\`" "status block is distinct from bin/cmdp status"
 has "[Status block](#status-block)" "parent job links to status block section"
 has "Awaiting you](#status-block) counts as such a decision" "ping-pong rule ties to awaiting you rows"
 has "Human decision = Awaiting you only" "human-blocked jobs appear only in awaiting you"
@@ -131,7 +131,7 @@ lacks '`muxa preflight`' "does not resurrect muxa preflight"
 
 lacks "The operator currently forbids the claude CLI for workers" "claude ban sentence is removed from AGENTS.md"
 has "data/routing.tsv" "playbook points at data/routing.tsv for routing"
-has "bin/cp doctor" "playbook mentions bin/cp doctor"
+has "bin/cmdp doctor" "playbook mentions bin/cmdp doctor"
 has "missing CLI exits 2" "playbook documents pre-lease CLI probe"
 has "reports/model-routing.md" "per-job model rubric lives in model-routing.md"
 has "--scope" "dispatch --scope is documented"
@@ -172,15 +172,15 @@ else
   fail "AGENTS.md is ≤505 lines (got $lines; target ~400)"
 fi
 
-# Zero tmux pane commands in the playbook, bin/cp, and this repo's tests.
+# Zero tmux pane commands in the playbook, bin/cmdp, and this repo's tests.
 # Mentions of the word tmux ("do not call tmux") are allowed; quoted
 # contract needles in this file are not invocations.
 tmux_hits="$(grep -nE '^[^"#]*tmux[[:space:]]+(kill-pane|send-keys|list-panes|capture-pane|display-message|new-window|split-window)' \
-  "$AGENTS" "$ROOT/bin/cp" "$ROOT"/test/*.sh || true)"
+  "$AGENTS" "$ROOT/bin/cmdp" "$ROOT"/test/*.sh || true)"
 if [[ -n "$tmux_hits" ]]; then
-  fail "zero tmux pane commands in playbook, bin/cp, and tests ($tmux_hits)"
+  fail "zero tmux pane commands in playbook, bin/cmdp, and tests ($tmux_hits)"
 else
-  ok "zero tmux pane commands in playbook, bin/cp, and tests"
+  ok "zero tmux pane commands in playbook, bin/cmdp, and tests"
 fi
 
 # check/jobs consume who --json only. dispatch/teardown wrap muxa (call
@@ -188,25 +188,25 @@ fi
 # still the orchestrator's muxa send — this CLI must not send, spawn, or
 # unregister. Strip comments and quoted strings so policy printf text is
 # not an invocation.
-cp_muxa_hits="$(grep -rnE 'muxa[[:space:]]+(spawn|send|unregister)([[:space:]]|$)' "$ROOT/internal/cp" 2>/dev/null | grep -v '_test.go' || true)"
-if [[ -n "$cp_muxa_hits" ]]; then
-  fail "bin/cp does not invoke muxa spawn/send/unregister ($cp_muxa_hits)"
+cmdp_muxa_hits="$(grep -rnE 'muxa[[:space:]]+(spawn|send|unregister)([[:space:]]|$)' "$ROOT/internal/cmdp" 2>/dev/null | grep -v '_test.go' || true)"
+if [[ -n "$cmdp_muxa_hits" ]]; then
+  fail "bin/cmdp does not invoke muxa spawn/send/unregister ($cmdp_muxa_hits)"
 else
-  ok "bin/cp does not invoke muxa spawn/send/unregister"
+  ok "bin/cmdp does not invoke muxa spawn/send/unregister"
 fi
 
 grep -F -q 'dispatch_cmd=(muxa dispatch)' "$ROOT/scripts/cp-legacy.bash" \
-  || grep -F -q 'muxa dispatch' "$ROOT/internal/cp/dispatch.go" \
-  && ok "bin/cp dispatch calls muxa dispatch" \
-  || fail "bin/cp dispatch calls muxa dispatch"
-grep -F -q 'muxa tail' "$ROOT/internal/cp/dispatch.go" \
+  || grep -F -q 'muxa dispatch' "$ROOT/internal/cmdp/dispatch.go" \
+  && ok "bin/cmdp dispatch calls muxa dispatch" \
+  || fail "bin/cmdp dispatch calls muxa dispatch"
+grep -F -q 'muxa tail' "$ROOT/internal/cmdp/dispatch.go" \
   || grep -F -q 'muxa tail' "$ROOT/scripts/cp-legacy.bash" \
-  && ok "bin/cp dispatch calls muxa tail" \
-  || fail "bin/cp dispatch calls muxa tail"
-grep -F -q 'muxa kill' "$ROOT/internal/cp/teardown.go" \
+  && ok "bin/cmdp dispatch calls muxa tail" \
+  || fail "bin/cmdp dispatch calls muxa tail"
+grep -F -q 'muxa kill' "$ROOT/internal/cmdp/teardown.go" \
   || grep -F -q 'muxa kill' "$ROOT/scripts/cp-legacy.bash" \
-  && ok "bin/cp teardown calls muxa kill" \
-  || fail "bin/cp teardown calls muxa kill"
+  && ok "bin/cmdp teardown calls muxa kill" \
+  || fail "bin/cmdp teardown calls muxa kill"
 
 if [[ "$failed" -ne 0 ]]; then
   printf '%d failed of %d\n' "$failed" "$n" >&2

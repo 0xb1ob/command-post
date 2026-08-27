@@ -12,7 +12,7 @@ dispatch. Exit 0 / `state: dispatched` means queued, not received.
 Two orchestrator mistakes from the first multi-repo dispatch session. Both were
 already forbidden in spirit; this note is the fail-closed recovery so they are
 not repeated. Promotion and treehouse lease recovery stay in command-post.
-Occupied-cwd warning belongs in `muxa dispatch --cwd`. `bin/cp check` fail-closes
+Occupied-cwd warning belongs in `muxa dispatch --cwd`. `bin/cmdp check` fail-closes
 that policy (reads `muxa who --json`, promote-not-spawn) plus clone/worktree
 facts. Do not reimplement `muxa dispatch`.
 
@@ -33,11 +33,11 @@ same repo + same worktree still held (lease not returned)
   → no muxa dispatch, no new treehouse lease
 
 worktree returned, or job is independent (other repo / second worktree)
-  → bin/cp lease --project NAME
+  → bin/cmdp lease --project NAME
   → bind the printed path; muxa dispatch --cwd "$worktree"
 ```
 
-Before dispatch: `bin/cp check --project <name> "$worktree"` (and `muxa who --json`
+Before dispatch: `bin/cmdp check --project <name> "$worktree"` (and `muxa who --json`
 `cwd`). `muxa dispatch --cwd` warns if a registered worker already occupies
 that path — promote with `muxa send`, do not dispatch a second pane. Ghost
 panes: `muxa kill NAME|ID` (dead pane) or restart the CLI in that pane; do
@@ -58,9 +58,9 @@ mis-pointed.
 1. `treehouse return --force <bad-worktree>`
 2. Fix registration: `data/projects.md` Path = `projects/<name>`; retire or
    rename extra clones (`~/command-post`, …) so they are not lease cwd
-3. Re-lease: `bin/cp lease --project <name>` (or `cd projects/<name>` then
-   `treehouse get --lease` when `bin/cp` is unavailable)
-4. `bin/cp check --project <name> <worktree>` on the new path
+3. Re-lease: `bin/cmdp lease --project <name>` (or `cd projects/<name>` then
+   `treehouse get --lease` when `bin/cmdp` is unavailable)
+4. `bin/cmdp check --project <name> <worktree>` on the new path
 
 `git worktree add` only when treehouse is **not installed**. A wrong-repo
 preflight is not "treehouse unavailable."
@@ -72,7 +72,7 @@ preflight is not "treehouse unavailable."
 
 `treehouse get --lease` keys off the git repo of the cwd you run it from. A
 leftover clone (e.g. `~/command-post`) yields a worktree linked to that `.git`,
-not `projects/<name>/.git`. `bin/cp check` then fails: the path **belongs to
+not `projects/<name>/.git`. `bin/cmdp check` then fails: the path **belongs to
 another repo**.
 
 Recovering with `git worktree add` under `projects/.worktrees/` (or anywhere)
@@ -98,7 +98,7 @@ Cursor. Applying it to `kind=claude` panes fails in both directions at once,
 which is how a real silent dispatch failure went unnoticed for a stretch of
 live jobs before it was caught:
 
-- **False positive.** `bin/cp dispatch` sets `branch=br-id` and creates that
+- **False positive.** `bin/cmdp dispatch` sets `branch=br-id` and creates that
   branch on the leased worktree *before* the pane is even spawned. A claude
   pane's footer renders `<cwd> (<branch>) | <model> | Context: N%` regardless
   of whether anything was ever pasted into it. Grepping the tail for the bare
@@ -113,9 +113,9 @@ live jobs before it was caught:
 
 The reliable signal for `kind=claude` is the footer's own `Context: N%`: an
 empty prompt reads `Context: 0.0%`, and any pasted, tokenized content pushes
-it above zero. `bin/cp dispatch` reads kind from `muxa who --json` (never
+it above zero. `bin/cmdp dispatch` reads kind from `muxa who --json` (never
 from the agent CMD or from pane text) and branches the check accordingly —
-see `worker_kind` and the receipt block in `cmd_dispatch` (`bin/cp`).
+see `worker_kind` and the receipt block in `cmd_dispatch` (`bin/cmdp`).
 
 **Timing caveat, learned from a real false alarm:** the broker deliberately
 waits for the CLI to boot, draw, and go quiet before pasting, and claude's
@@ -140,11 +140,11 @@ vivid-fox incident sat idle for 24 minutes; every existing signal missed it:
 
 - Dispatch receipt is one-shot — a redraw that eats the paste after
   `receipt=confirmed` is unobservable by design.
-- `bin/cp status` mapped `pane_state=idle` + open br to phase `waiting`,
+- `bin/cmdp status` mapped `pane_state=idle` + open br to phase `waiting`,
   identical to a healthy between-turn idle.
 - No never-ready mail fires — the pane was live.
 
-**Detection (slice 3):** `bin/cp status` adds phase `stalled` when the pane is
+**Detection (slice 3):** `bin/cmdp status` adds phase `stalled` when the pane is
 idle, the br issue is still open/in_progress, and jobs.tsv `dispatched_at` is
 older than `CP_STATUS_STALL_SEC` (default 600s). Legacy rows without
 `dispatched_at` never stall. Advisory and read-only — no auto-restart, kill,
@@ -165,7 +165,7 @@ from outside the worktree, then `muxa kill NAME|ID`.
 
 ## Orchestration notes
 
-- Before `muxa dispatch`, run `bin/cp check --project <name> "$worktree"`.
+- Before `muxa dispatch`, run `bin/cmdp check --project <name> "$worktree"`.
   Promote with `muxa send` instead of a second dispatch. Occupied cwd is
   muxa's warning on `muxa dispatch --cwd`; the checker applies promote-not-spawn
   from `muxa who --json` and does not reimplement dispatch.
@@ -175,7 +175,7 @@ from outside the worktree, then `muxa kill NAME|ID`.
 - Treehouse preflight "belongs to another repo" → return the lease and fix
   the canonical `projects/<name>` clone; do not fall back without fixing
   registration.
-- `bin/cp jobs` is runtime-only (worker + worktree + branch, keyed by br id);
+- `bin/cmdp jobs` is runtime-only (worker + worktree + branch, keyed by br id);
   br holds kind / delivery / status / PR. Do not store those on the runtime map.
 - Parallel `muxa dispatch` can race and assign the same alias; dispatch sequentially
   or pass `--name` so send targets stay unique.

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Dispatch helper for command-post.
 #
-#   bin/cp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
-#   bin/cp lease --project NAME
-#   bin/cp jobs add|set|done|list ...
-#   bin/cp artifact path|add|get ...
-#   bin/cp gate ID [--model M]
-#   bin/cp doctor [--json]
-#   bin/cp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
+#   bin/cmdp check --project NAME [--base BRANCH] WORKTREE [WORKTREE...]
+#   bin/cmdp lease --project NAME
+#   bin/cmdp jobs add|set|done|list ...
+#   bin/cmdp artifact path|add|get ...
+#   bin/cmdp gate ID [--model M]
+#   bin/cmdp doctor [--json]
+#   bin/cmdp dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME]
 #                   [--task-file FILE] [-- CMD...]
-#   bin/cp teardown ID [--research]
-#   bin/cp status [--json] [--html] [--serve [--port N]] [--origin ID]
+#   bin/cmdp teardown ID [--research]
+#   bin/cmdp status [--json] [--html] [--serve [--port N]] [--origin ID]
 #
 # check: fail-closed dispatch precheck. Does not dispatch, send mail, write
 # jobs, or wrap br.
@@ -104,7 +104,7 @@ ROOT="$(cd "$(dirname "$PROG")/.." && pwd)"
 CP_HOME="${CP_HOME:-$ROOT}"
 
 DEFAULT_GATE_MODEL="composer-2.5-fast"
-# Stall detection (bin/cp status): idle + open br + stamped dispatched_at
+# Stall detection (bin/cmdp status): idle + open br + stamped dispatched_at
 # older than this many seconds and no reported_at. 600s (10m) default —
 # the vivid-fox incident sat 24m with an empty composer after the CLI ate
 # the paste post-receipt; healthy workers mail within minutes; finished
@@ -171,7 +171,7 @@ usage_dispatch() {
   printf 'usage: %s dispatch --project NAME --br-id ID [--name ALIAS] [--template TNAME] [--task-file FILE] [-- CMD...]\n' "$PROG" >&2
   printf '       default CMD: from data/routing.tsv or shipped implementer default\n' >&2
   printf '       --template research uses the researcher role default\n' >&2
-  printf '       worker CLI is probed before lease; missing CLI exits 2 (see bin/cp doctor)\n' >&2
+  printf '       worker CLI is probed before lease; missing CLI exits 2 (see bin/cmdp doctor)\n' >&2
   printf '       stdout: one JSON object {br_id,worker,worktree,branch,state,receipt}\n' >&2
   printf '       state=dispatched means the brief is queued, not received.\n' >&2
   printf '       receipt=unconfirmed with state=dispatched is a valid success — wait for mail; never re-dispatch.\n' >&2
@@ -193,7 +193,7 @@ usage_jobs() {
 }
 
 die_jobs_usage() {
-  printf '[cp] error: %s\n' "$*" >&2
+  printf '[cmdp] error: %s\n' "$*" >&2
   usage_jobs
   exit 2
 }
@@ -205,7 +205,7 @@ usage_artifact() {
 }
 
 die_artifact_usage() {
-  printf '[cp] error: %s\n' "$*" >&2
+  printf '[cmdp] error: %s\n' "$*" >&2
   usage_artifact
   exit 2
 }
@@ -235,7 +235,7 @@ usage_gate() {
 }
 
 die_gate_usage() {
-  printf '[cp] error: %s\n' "$*" >&2
+  printf '[cmdp] error: %s\n' "$*" >&2
   usage_gate
   exit 2
 }
@@ -249,14 +249,14 @@ usage_doctor() {
 }
 
 die_doctor_usage() {
-  printf '[cp] error: %s\n' "$*" >&2
+  printf '[cmdp] error: %s\n' "$*" >&2
   usage_doctor
   exit 2
 }
 
-die() { printf '[cp] error: %s\n' "$*" >&2; exit 1; }
-die_usage() { printf '[cp] error: %s\n' "$*" >&2; usage; }
-log() { printf '[cp] %s\n' "$*"; }
+die() { printf '[cmdp] error: %s\n' "$*" >&2; exit 1; }
+die_usage() { printf '[cmdp] error: %s\n' "$*" >&2; usage; }
+log() { printf '[cmdp] %s\n' "$*"; }
 
 abs_git_common() {
   local d="$1" g parent
@@ -285,7 +285,7 @@ normalize_path() {
 
 require_muxa() {
   if ! command -v muxa >/dev/null 2>&1 && [[ -z "${MUXA_WHO_CMD:-}" ]]; then
-    printf '[cp] error: muxa not on PATH\n' >&2
+    printf '[cmdp] error: muxa not on PATH\n' >&2
     exit 2
   fi
 }
@@ -355,7 +355,7 @@ check_git_preflight() {
   local base="${BASE:-}" common primary branch arg raw wt wt_common fail=0
 
   common="$(abs_git_common "$clone")" || {
-    printf '[cp] fail: repo %s has no resolvable git dir\n' "$clone" >&2
+    printf '[cmdp] fail: repo %s has no resolvable git dir\n' "$clone" >&2
     return 1
   }
 
@@ -364,23 +364,23 @@ check_git_preflight() {
 
   primary="$(primary_worktree "$clone")"
   if [[ -z "$primary" ]]; then
-    printf '[cp] fail: primary checkout: git worktree list returned nothing\n' >&2
+    printf '[cmdp] fail: primary checkout: git worktree list returned nothing\n' >&2
     fail=1
     primary=""
   elif [[ ! -d "$primary" ]]; then
-    printf '[cp] fail: primary %s does not exist\n' "$primary" >&2
+    printf '[cmdp] fail: primary %s does not exist\n' "$primary" >&2
     fail=1
     primary=""
   else
     primary="$(cd "$primary" && pwd -P)"
     branch="$(git -C "$primary" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
     if [[ -z "$branch" ]]; then
-      printf '[cp] fail: primary %s is detached (want %s)\n' "$primary" "$base" >&2
+      printf '[cmdp] fail: primary %s is detached (want %s)\n' "$primary" "$base" >&2
       fail=1
     elif [[ "$branch" == "$base" ]]; then
       log "primary $primary on $base"
     else
-      printf '[cp] fail: primary %s on %s (want %s)\n' "$primary" "$branch" "$base" >&2
+      printf '[cmdp] fail: primary %s on %s (want %s)\n' "$primary" "$branch" "$base" >&2
       fail=1
     fi
   fi
@@ -392,20 +392,20 @@ check_git_preflight() {
       raw="$clone/$arg"
     fi
     if [[ ! -d "$raw" ]]; then
-      printf '[cp] fail: worktree %s does not exist\n' "$arg" >&2
+      printf '[cmdp] fail: worktree %s does not exist\n' "$arg" >&2
       fail=1
       continue
     fi
     wt="$(cd "$raw" && pwd -P)"
     wt_common="$(abs_git_common "$wt" || true)"
     if [[ -z "$wt_common" ]]; then
-      printf '[cp] fail: worktree %s is not a git worktree\n' "$wt" >&2
+      printf '[cmdp] fail: worktree %s is not a git worktree\n' "$wt" >&2
       fail=1
     elif [[ "$wt_common" != "$common" ]]; then
-      printf '[cp] fail: worktree %s belongs to another repo (%s)\n' "$wt" "$wt_common" >&2
+      printf '[cmdp] fail: worktree %s belongs to another repo (%s)\n' "$wt" "$wt_common" >&2
       fail=1
     elif [[ -n "$primary" && "$wt" == "$primary" ]]; then
-      printf '[cp] fail: worktree %s is the primary checkout, not a linked worktree\n' "$wt" >&2
+      printf '[cmdp] fail: worktree %s is the primary checkout, not a linked worktree\n' "$wt" >&2
       fail=1
     else
       branch="$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
@@ -424,7 +424,7 @@ check_git_preflight() {
 # The human who table is a UI and will drift — do not scrape it.
 who_json_rows() {
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for muxa who --json)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for muxa who --json)\n' >&2
     exit 2
   fi
   python3 -c '
@@ -433,24 +433,24 @@ raw = sys.stdin.read()
 try:
     rows = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: muxa who --json: not JSON (need muxa who --json; do not scrape the human table)\n")
+    sys.stderr.write("[cmdp] error: muxa who --json: not JSON (need muxa who --json; do not scrape the human table)\n")
     sys.exit(2)
 if not isinstance(rows, list):
-    sys.stderr.write("[cp] error: muxa who --json: expected an array\n")
+    sys.stderr.write("[cmdp] error: muxa who --json: expected an array\n")
     sys.exit(2)
 for r in rows:
     if not isinstance(r, dict):
-        sys.stderr.write("[cp] error: muxa who --json: expected objects\n")
+        sys.stderr.write("[cmdp] error: muxa who --json: expected objects\n")
         sys.exit(2)
     name = r.get("name") if r.get("name") is not None else ""
     state = r.get("state") if r.get("state") is not None else ""
     cwd = r.get("cwd") if r.get("cwd") is not None else ""
     kind = r.get("kind") if r.get("kind") is not None else ""
     if str(state) == "":
-        sys.stderr.write("[cp] error: muxa who --json: missing state\n")
+        sys.stderr.write("[cmdp] error: muxa who --json: missing state\n")
         sys.exit(2)
     if "\t" in str(name) or "\n" in str(name) or "\t" in str(state) or "\n" in str(state) or "\t" in str(cwd) or "\n" in str(cwd) or "\t" in str(kind) or "\n" in str(kind):
-        sys.stderr.write("[cp] error: muxa who --json: field contains a tab or newline\n")
+        sys.stderr.write("[cmdp] error: muxa who --json: field contains a tab or newline\n")
         sys.exit(2)
     sys.stdout.write("%s\t%s\t%s\t%s\n" % (name, state, cwd, kind))
 '
@@ -481,7 +481,7 @@ check_occupancy() {
 
   local who_out parsed
   if ! who_out="$("${who_cmd[@]}")"; then
-    printf '[cp] error: muxa who --json failed\n' >&2
+    printf '[cmdp] error: muxa who --json failed\n' >&2
     exit 2
   fi
   if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
@@ -507,16 +507,16 @@ check_occupancy() {
 
     case "$state" in
       idle|busy)
-        printf '[cp] promote-not-spawn: live worker %s occupies %s\n' "$name" "$resolved" >&2
-        printf '[cp] same worktree still held → muxa send %s (do not muxa dispatch, do not treehouse get --lease)\n' "$name" >&2
+        printf '[cmdp] promote-not-spawn: live worker %s occupies %s\n' "$name" "$resolved" >&2
+        printf '[cmdp] same worktree still held → muxa send %s (do not muxa dispatch, do not treehouse get --lease)\n' "$name" >&2
         collisions=$((collisions + 1))
         ;;
       ghost)
-        printf '[cp] occupied cwd: ghost worker %s on %s — muxa kill NAME|ID for a dead pane, or restart the CLI in that pane; do not promote, do not dispatch\n' "$name" "$resolved" >&2
+        printf '[cmdp] occupied cwd: ghost worker %s on %s — muxa kill NAME|ID for a dead pane, or restart the CLI in that pane; do not promote, do not dispatch\n' "$name" "$resolved" >&2
         ghost_hits=$((ghost_hits + 1))
         ;;
       *)
-        printf '[cp] occupied cwd: worker %s (state %s) on %s — do not dispatch\n' "$name" "$state" "$resolved" >&2
+        printf '[cmdp] occupied cwd: worker %s (state %s) on %s — do not dispatch\n' "$name" "$state" "$resolved" >&2
         collisions=$((collisions + 1))
         ;;
     esac
@@ -547,7 +547,7 @@ dispatch_occupancy_warning_contradiction() {
 
   local who_out parsed
   if ! who_out="$("${who_cmd[@]}")"; then
-    printf '[cp] error: muxa who --json failed while checking dispatch occupancy warning\n' >&2
+    printf '[cmdp] error: muxa who --json failed while checking dispatch occupancy warning\n' >&2
     return 1
   fi
   if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
@@ -562,8 +562,8 @@ dispatch_occupancy_warning_contradiction() {
     fi
   done <<< "$parsed"
 
-  printf '[cp] fail: muxa dispatch warns cwd already has live worker %s but muxa who --json omits that worker\n' "$warned" >&2
-  printf '[cp] contradicting signals — roster absence is not proof the worker is dead; inspect with muxa tail %s before proceeding\n' "$warned" >&2
+  printf '[cmdp] fail: muxa dispatch warns cwd already has live worker %s but muxa who --json omits that worker\n' "$warned" >&2
+  printf '[cmdp] contradicting signals — roster absence is not proof the worker is dead; inspect with muxa tail %s before proceeding\n' "$warned" >&2
   return 1
 }
 
@@ -575,19 +575,19 @@ dispatch_kill_orphan_pane() {
   local parsed worker
 
   if ! parsed="$(printf '%s\n' "$dispatch_stdout" | parse_dispatch_json 2>/dev/null)"; then
-    printf '[cp] error: occupancy contradiction but muxa dispatch JSON is unusable — lease kept\n' >&2
+    printf '[cmdp] error: occupancy contradiction but muxa dispatch JSON is unusable — lease kept\n' >&2
     DISPATCH_KEEP_LEASE=1
     return 1
   fi
   IFS=$'\t' read -r worker _ _ <<< "$parsed"
   if [[ -z "$worker" ]]; then
-    printf '[cp] error: occupancy contradiction but muxa dispatch JSON has no worker name — lease kept\n' >&2
+    printf '[cmdp] error: occupancy contradiction but muxa dispatch JSON has no worker name — lease kept\n' >&2
     DISPATCH_KEEP_LEASE=1
     return 1
   fi
   require_muxa_bin
   if ! muxa kill "$worker"; then
-    printf '[cp] error: occupancy contradiction — muxa kill %s failed; lease kept on worktree\n' "$worker" >&2
+    printf '[cmdp] error: occupancy contradiction — muxa kill %s failed; lease kept on worktree\n' "$worker" >&2
     DISPATCH_KEEP_LEASE=1
     return 1
   fi
@@ -656,7 +656,7 @@ usage_lease() {
   printf 'Lease a worktree from the canonical clone at projects/<name>.\n' >&2
   printf 'Runs treehouse get --lease with cwd in that clone (treehouse keys\n' >&2
   printf 'off cwd, not a path argument). Prints the absolute worktree path\n' >&2
-  printf 'on stdout only. Follow with bin/cp check --project NAME "$worktree".\n' >&2
+  printf 'on stdout only. Follow with bin/cmdp check --project NAME "$worktree".\n' >&2
 }
 
 cmd_lease() {
@@ -790,7 +790,7 @@ resolve_beads_db() {
 
 require_br() {
   if ! command -v br >/dev/null 2>&1; then
-    printf '[cp] error: br not on PATH\n' >&2
+    printf '[cmdp] error: br not on PATH\n' >&2
     exit 2
   fi
 }
@@ -1101,7 +1101,7 @@ jobs_list_json() {
   local f line job worker worktree branch
   f="$(jobs_file)"
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for --json)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for --json)\n' >&2
     exit 2
   fi
   {
@@ -1195,7 +1195,7 @@ artifact_add() {
   require_br_issue "$id"
   db="$(resolve_beads_db)"
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for artifact add JSON)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for artifact add JSON)\n' >&2
     exit 2
   fi
   bytes="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$file")"
@@ -1225,7 +1225,7 @@ artifact_teardown_guard() {
   if [[ ${#extras[@]} -eq 0 ]]; then
     return 0
   fi
-  printf '[cp] fail: artifact dir has unmirrored files — keep the lease; mirror with artifact add or copy out before teardown:\n' >&2
+  printf '[cmdp] fail: artifact dir has unmirrored files — keep the lease; mirror with artifact add or copy out before teardown:\n' >&2
   for entry in "${extras[@]}"; do
     printf '  %s\n' "$entry" >&2
   done
@@ -1249,7 +1249,7 @@ artifact_get() {
   require_br
   db="$(resolve_beads_db)"
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for artifact get)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for artifact get)\n' >&2
     exit 2
   fi
   if ! raw="$(br --db "$db" comments list "$id" --json)"; then
@@ -1262,7 +1262,7 @@ raw = sys.stdin.read()
 try:
     comments = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.stderr.write("[cmdp] error: br comments list --json: not JSON\n")
     sys.exit(2)
 if isinstance(comments, dict) and "error" in comments:
     err = comments.get("error")
@@ -1272,10 +1272,10 @@ if isinstance(comments, dict) and "error" in comments:
     else:
         code = "BR_ERROR"
         msg = str(err)
-    sys.stderr.write("[cp] error: br comments list --json: %s: %s\n" % (code, msg))
+    sys.stderr.write("[cmdp] error: br comments list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if not isinstance(comments, list):
-    sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
+    sys.stderr.write("[cmdp] error: br comments list --json: expected an array\n")
     sys.exit(2)
 best = None
 for c in comments:
@@ -1297,7 +1297,7 @@ for c in comments:
     if best is None or key >= best[0]:
         best = (key, text)
 if best is None:
-    sys.stderr.write("[cp] error: no artifact:v1 comment on %s\n" % os.environ.get("ARTIFACT_ID", ""))
+    sys.stderr.write("[cmdp] error: no artifact:v1 comment on %s\n" % os.environ.get("ARTIFACT_ID", ""))
     sys.exit(1)
 text = best[1]
 if text.startswith("artifact:v1\r\n"):
@@ -1352,7 +1352,7 @@ raw = sys.stdin.read()
 try:
     comments = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: br comments list --json: not JSON\n")
+    sys.stderr.write("[cmdp] error: br comments list --json: not JSON\n")
     sys.exit(2)
 if isinstance(comments, dict) and "error" in comments:
     err = comments.get("error")
@@ -1362,10 +1362,10 @@ if isinstance(comments, dict) and "error" in comments:
     else:
         code = "BR_ERROR"
         msg = str(err)
-    sys.stderr.write("[cp] error: br comments list --json: %s: %s\n" % (code, msg))
+    sys.stderr.write("[cmdp] error: br comments list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if not isinstance(comments, list):
-    sys.stderr.write("[cp] error: br comments list --json: expected an array\n")
+    sys.stderr.write("[cmdp] error: br comments list --json: expected an array\n")
     sys.exit(2)
 n = 0
 prior_revise = 0
@@ -1494,7 +1494,7 @@ run_gate_reviewer() {
     agent --print --mode ask --output-format text --model "$model" -- "$(cat "$prompt_file")" > "$out_file"
     return $?
   fi
-  printf '[cp] error: gate-reviewer CLI %q is not supported for headless gate (set CP_GATE_CMD to override)\n' "$bin" >&2
+  printf '[cmdp] error: gate-reviewer CLI %q is not supported for headless gate (set CP_GATE_CMD to override)\n' "$bin" >&2
   exit 2
 }
 
@@ -1669,7 +1669,7 @@ cmd_gate() {
   require_no_ctl model "$model"
   require_br
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for gate)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for gate)\n' >&2
     exit 2
   fi
 
@@ -1683,7 +1683,7 @@ cmd_gate() {
   # artifact get is the only sanctioned reader (not br show).
   if ! artifact_get "$id" >"$tmpd/artifact.md" 2>"$tmpd/get.err"; then
     if grep -q 'no artifact:v1 comment' "$tmpd/get.err"; then
-      printf '[cp] error: no artifact on %s — cannot gate\n' "$id" >&2
+      printf '[cmdp] error: no artifact on %s — cannot gate\n' "$id" >&2
       exit 1
     fi
     cat "$tmpd/get.err" >&2
@@ -1797,20 +1797,20 @@ raw = sys.stdin.read()
 try:
     rows = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: muxa who --json: not JSON\n")
+    sys.stderr.write("[cmdp] error: muxa who --json: not JSON\n")
     sys.exit(2)
 if not isinstance(rows, list):
-    sys.stderr.write("[cp] error: muxa who --json: expected an array\n")
+    sys.stderr.write("[cmdp] error: muxa who --json: expected an array\n")
     sys.exit(2)
 out = []
 for r in rows:
     if not isinstance(r, dict):
-        sys.stderr.write("[cp] error: muxa who --json: expected objects\n")
+        sys.stderr.write("[cmdp] error: muxa who --json: expected objects\n")
         sys.exit(2)
     name = r.get("name")
     state = r.get("state")
     if not name or not state:
-        sys.stderr.write("[cp] error: muxa who --json: missing name or state\n")
+        sys.stderr.write("[cmdp] error: muxa who --json: missing name or state\n")
         sys.exit(2)
     out.append({
         "name": str(name),
@@ -1894,7 +1894,7 @@ if isinstance(data, dict) and "error" in data:
         code = "BR_ERROR"
         msg = str(err)
     ctx = os.environ.get("BR_JSON_CONTEXT", "br --json")
-    sys.stderr.write("[cp] error: %s: %s: %s\n" % (ctx, code, msg))
+    sys.stderr.write("[cmdp] error: %s: %s: %s\n" % (ctx, code, msg))
     sys.exit(2)
 ' <<< "$raw"
 }
@@ -1906,7 +1906,7 @@ raw = sys.stdin.read()
 try:
     rows = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: br list --json: not JSON\n")
+    sys.stderr.write("[cmdp] error: br list --json: not JSON\n")
     sys.exit(2)
 if isinstance(rows, dict) and "error" in rows:
     err = rows.get("error")
@@ -1916,25 +1916,25 @@ if isinstance(rows, dict) and "error" in rows:
     else:
         code = "BR_ERROR"
         msg = str(err)
-    sys.stderr.write("[cp] error: br list --json: %s: %s\n" % (code, msg))
+    sys.stderr.write("[cmdp] error: br list --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if isinstance(rows, dict):
     issues = rows.get("issues")
     if not isinstance(issues, list):
-        sys.stderr.write("[cp] error: br list --json: envelope missing issues array\n")
+        sys.stderr.write("[cmdp] error: br list --json: envelope missing issues array\n")
         sys.exit(2)
     rows = issues
 elif not isinstance(rows, list):
-    sys.stderr.write("[cp] error: br list --json: expected an array or envelope with issues\n")
+    sys.stderr.write("[cmdp] error: br list --json: expected an array or envelope with issues\n")
     sys.exit(2)
 out = []
 for r in rows:
     if not isinstance(r, dict):
-        sys.stderr.write("[cp] error: br list --json: expected objects\n")
+        sys.stderr.write("[cmdp] error: br list --json: expected objects\n")
         sys.exit(2)
     rid = r.get("id")
     if not rid:
-        sys.stderr.write("[cp] error: br list --json: missing id\n")
+        sys.stderr.write("[cmdp] error: br list --json: missing id\n")
         sys.exit(2)
     out.append({
         "id": str(rid),
@@ -1978,7 +1978,7 @@ raw = sys.stdin.read()
 try:
     rows = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: br blocked --json: not JSON\n")
+    sys.stderr.write("[cmdp] error: br blocked --json: not JSON\n")
     sys.exit(2)
 if isinstance(rows, dict) and "error" in rows:
     err = rows.get("error")
@@ -1988,33 +1988,33 @@ if isinstance(rows, dict) and "error" in rows:
     else:
         code = "BR_ERROR"
         msg = str(err)
-    sys.stderr.write("[cp] error: br blocked --json: %s: %s\n" % (code, msg))
+    sys.stderr.write("[cmdp] error: br blocked --json: %s: %s\n" % (code, msg))
     sys.exit(2)
 if isinstance(rows, dict):
     issues = rows.get("issues")
     if issues is None and isinstance(rows.get("data"), list):
         issues = rows.get("data")
     if not isinstance(issues, list):
-        sys.stderr.write("[cp] error: br blocked --json: envelope missing issues array\n")
+        sys.stderr.write("[cmdp] error: br blocked --json: envelope missing issues array\n")
         sys.exit(2)
     rows = issues
 elif not isinstance(rows, list):
-    sys.stderr.write("[cp] error: br blocked --json: expected an array or envelope with issues\n")
+    sys.stderr.write("[cmdp] error: br blocked --json: expected an array or envelope with issues\n")
     sys.exit(2)
 out = []
 for r in rows:
     if not isinstance(r, dict):
-        sys.stderr.write("[cp] error: br blocked --json: expected objects\n")
+        sys.stderr.write("[cmdp] error: br blocked --json: expected objects\n")
         sys.exit(2)
     rid = r.get("id")
     if not rid:
-        sys.stderr.write("[cp] error: br blocked --json: missing id\n")
+        sys.stderr.write("[cmdp] error: br blocked --json: missing id\n")
         sys.exit(2)
     blocked_by = r.get("blocked_by")
     if blocked_by is None:
         blocked_by = []
     elif not isinstance(blocked_by, list):
-        sys.stderr.write("[cp] error: br blocked --json: blocked_by must be an array\n")
+        sys.stderr.write("[cmdp] error: br blocked --json: blocked_by must be an array\n")
         sys.exit(2)
     out.append({
         "id": str(rid),
@@ -2705,7 +2705,7 @@ if rc == 2:
     sys.exit(2)
 
 if rc != 0:
-    sys.stderr.write("[cp] error: muxa tail failed\n")
+    sys.stderr.write("[cmdp] error: muxa tail failed\n")
     sys.exit(1)
 
 def classify(text):
@@ -2836,11 +2836,11 @@ def main():
     try:
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError as exc:
-        print(f"[cp] error: cannot bind {HOST}:{PORT} ({exc})", file=sys.stderr)
+        print(f"[cmdp] error: cannot bind {HOST}:{PORT} ({exc})", file=sys.stderr)
         sys.exit(2)
     bound_port = httpd.server_address[1]
     print(f"http://127.0.0.1:{bound_port}/", flush=True)
-    print("[cp] Ctrl-C to stop", file=sys.stderr)
+    print("[cmdp] Ctrl-C to stop", file=sys.stderr)
 
     # serve_forever must not run on the main thread: shutdown() from a signal
     # handler deadlocks when the same thread is blocked inside serve_forever().
@@ -2929,7 +2929,7 @@ cmd_status() {
   fi
 
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for status)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for status)\n' >&2
     exit 2
   fi
 
@@ -2968,7 +2968,7 @@ routing_tsv_path() {
 
 require_python3() {
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for bin/cp JSON, brief, gate, status)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for bin/cmdp JSON, brief, gate, status)\n' >&2
     exit 2
   fi
 }
@@ -3195,7 +3195,7 @@ announce_routing_resolution() {
   local role="$1" source="$2" reason="$3"
   shift 3
   local -a argv=("$@")
-  printf '[cp] routing: role=%s argv=%q source=%s (%s)\n' \
+  printf '[cmdp] routing: role=%s argv=%q source=%s (%s)\n' \
     "$role" "${argv[*]}" "$source" "$reason" >&2
 }
 
@@ -3203,15 +3203,15 @@ validate_worker_argv0() {
   local argv0="$1" role="$2" source="$3"
   [[ -f "$(clis_tsv_path)" ]] || die "missing CLI registry: $(clis_tsv_path)"
   if ! cli_is_supported "$argv0"; then
-    printf '[cp] error: worker CLI %q is not in share/clis.tsv (role=%s, source=%s)\n' \
+    printf '[cmdp] error: worker CLI %q is not in share/clis.tsv (role=%s, source=%s)\n' \
       "$argv0" "$role" "$source" >&2
     printf 'Use a supported CLI from share/clis.tsv, or pass an explicit -- CMD override.\n' >&2
-    printf 'bin/cp doctor lists installed CLIs.\n' >&2
+    printf 'bin/cmdp doctor lists installed CLIs.\n' >&2
     exit 2
   fi
   load_forbid_clis "$(routing_tsv_path)"
   if cli_is_forbidden "$argv0"; then
-    printf '[cp] error: worker CLI %q is forbidden (forbid row in data/routing.tsv, role=%s)\n' \
+    printf '[cmdp] error: worker CLI %q is forbidden (forbid row in data/routing.tsv, role=%s)\n' \
       "$argv0" "$role" >&2
     printf 'Remove the forbid row or pick another CLI for that role in data/routing.tsv.\n' >&2
     exit 2
@@ -3237,7 +3237,7 @@ require_worker_cmd() {
     return 0
   fi
   list_derived_candidates candidates
-  printf '[cp] error: worker CLI %q not on PATH (role=%s, source=%s)\n' \
+  printf '[cmdp] error: worker CLI %q not on PATH (role=%s, source=%s)\n' \
     "$argv0" "$role" "$source" >&2
   if [[ ${#candidates[@]} -eq 0 ]]; then
     installable_clis_message >&2
@@ -3245,7 +3245,7 @@ require_worker_cmd() {
     printf "Install %q, or set that role in data/routing.tsv to an installed CLI from share/clis.tsv.\n" \
       "$argv0" >&2
   fi
-  printf 'bin/cp doctor lists installed CLIs.\n' >&2
+  printf 'bin/cmdp doctor lists installed CLIs.\n' >&2
   exit 2
 }
 
@@ -3260,14 +3260,14 @@ dispatch_role_from_template() {
 
 require_treehouse() {
   if ! command -v treehouse >/dev/null 2>&1; then
-    printf '[cp] error: treehouse not on PATH — run bin/install.sh\n' >&2
+    printf '[cmdp] error: treehouse not on PATH — run bin/install.sh\n' >&2
     exit 2
   fi
 }
 
 require_muxa_bin() {
   if ! command -v muxa >/dev/null 2>&1; then
-    printf '[cp] error: muxa not on PATH — run bin/install.sh\n' >&2
+    printf '[cmdp] error: muxa not on PATH — run bin/install.sh\n' >&2
     exit 2
   fi
 }
@@ -3363,7 +3363,7 @@ substitute_brief() {
   local src="$1" dest="$2" task_file="$3"
   local parent="$4" branch="$5" br_id="$6" artifact="$7"
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed to assemble the brief)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed to assemble the brief)\n' >&2
     exit 2
   fi
   PARENT="$parent" BRANCH="$branch" BR_ID="$br_id" ARTIFACT_PATH="$artifact" \
@@ -3387,7 +3387,7 @@ for key, val in pre_repl.items():
 left = [m for m in re.findall(r"\{\{[^}]+\}\}", text) if m != "{{TASK}}"]
 if left:
     sys.stderr.write(
-        "[cp] error: placeholder %s left unsubstituted — use {{PARENT}}, {{BRANCH}}, {{BR_ID}}, {{ARTIFACT_PATH}}, {{TASK}}\n"
+        "[cmdp] error: placeholder %s left unsubstituted — use {{PARENT}}, {{BRANCH}}, {{BR_ID}}, {{ARTIFACT_PATH}}, {{TASK}}\n"
         % left[0]
     )
     sys.exit(1)
@@ -3398,7 +3398,7 @@ PY
 
 parse_dispatch_json() {
   if ! command -v python3 >/dev/null 2>&1; then
-    printf '[cp] error: python3 not on PATH (needed for muxa dispatch JSON)\n' >&2
+    printf '[cmdp] error: python3 not on PATH (needed for muxa dispatch JSON)\n' >&2
     exit 2
   fi
   python3 -c '
@@ -3407,19 +3407,19 @@ raw = sys.stdin.read()
 try:
     obj = json.loads(raw)
 except Exception:
-    sys.stderr.write("[cp] error: muxa dispatch stdout is not JSON (state=dispatched means queued, not received)\n")
+    sys.stderr.write("[cmdp] error: muxa dispatch stdout is not JSON (state=dispatched means queued, not received)\n")
     sys.exit(2)
 if not isinstance(obj, dict):
-    sys.stderr.write("[cp] error: muxa dispatch stdout: expected a JSON object\n")
+    sys.stderr.write("[cmdp] error: muxa dispatch stdout: expected a JSON object\n")
     sys.exit(2)
 name = obj.get("name") if obj.get("name") is not None else ""
 cwd = obj.get("cwd") if obj.get("cwd") is not None else ""
 state = obj.get("state") if obj.get("state") is not None else ""
 if str(name) == "":
-    sys.stderr.write("[cp] error: muxa dispatch JSON missing name\n")
+    sys.stderr.write("[cmdp] error: muxa dispatch JSON missing name\n")
     sys.exit(1)
 if "\t" in str(name) or "\n" in str(name) or "\t" in str(cwd) or "\n" in str(cwd) or "\t" in str(state) or "\n" in str(state):
-    sys.stderr.write("[cp] error: muxa dispatch JSON: field contains a tab or newline\n")
+    sys.stderr.write("[cmdp] error: muxa dispatch JSON: field contains a tab or newline\n")
     sys.exit(2)
 sys.stdout.write("%s\t%s\t%s\n" % (name, cwd, state))
 '
@@ -3463,7 +3463,7 @@ worker_in_who() {
   fi
   local who_out parsed
   if ! who_out="$("${who_cmd[@]}")"; then
-    printf '[cp] error: muxa who --json failed\n' >&2
+    printf '[cmdp] error: muxa who --json failed\n' >&2
     exit 2
   fi
   if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
@@ -3494,7 +3494,7 @@ worker_kind() {
   fi
   local who_out parsed
   if ! who_out="$("${who_cmd[@]}")"; then
-    printf '[cp] error: muxa who --json failed\n' >&2
+    printf '[cmdp] error: muxa who --json failed\n' >&2
     exit 2
   fi
   if ! parsed="$(printf '%s\n' "$who_out" | who_json_rows)"; then
@@ -3516,7 +3516,7 @@ assert_clean_research() {
   local dirty base ahead upstream local_rev remote_rev
   dirty="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
   if [[ -n "$dirty" ]]; then
-    printf '[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
+    printf '[cmdp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
     exit 1
   fi
   base="$(default_base_branch "$wt")"
@@ -3526,7 +3526,7 @@ assert_clean_research() {
     if [[ "$local_rev" == "$remote_rev" ]]; then
       return 0
     fi
-    printf '[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
+    printf '[cmdp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
       "$wt" "$branch" "$branch" >&2
     exit 1
   fi
@@ -3534,7 +3534,7 @@ assert_clean_research() {
     local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
     remote_rev="$(git -C "$wt" rev-parse '@{u}')"
     if [[ "$local_rev" != "$remote_rev" ]]; then
-      printf '[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
+      printf '[cmdp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
         "$wt" "$branch" "${local_rev:0:12}" "$upstream" >&2
       exit 1
     fi
@@ -3545,7 +3545,7 @@ assert_clean_research() {
     ahead="$(git -C "$wt" rev-list --count "origin/$base..$branch" 2>/dev/null || echo 0)"
   fi
   if [[ "$ahead" != "0" ]]; then
-    printf '[cp] error: research branch %s has %s unpushed commit(s) on %s — keep the lease; reset or push, then retry teardown\n' \
+    printf '[cmdp] error: research branch %s has %s unpushed commit(s) on %s — keep the lease; reset or push, then retry teardown\n' \
       "$branch" "$ahead" "$wt" >&2
     exit 1
   fi
@@ -3556,7 +3556,7 @@ assert_clean_and_pushed() {
   local dirty local_rev remote_rev upstream head_branch base
   dirty="$(git -C "$wt" status --porcelain 2>/dev/null || true)"
   if [[ -n "$dirty" ]]; then
-    printf '[cp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
+    printf '[cmdp] error: dirty worktree %s — keep the lease; clean porcelain, then retry teardown\n' "$wt" >&2
     exit 1
   fi
   local_rev="$(git -C "$wt" rev-parse HEAD 2>/dev/null || true)"
@@ -3574,12 +3574,12 @@ assert_clean_and_pushed() {
     if [[ "$local_rev" == "$remote_rev" ]]; then
       return 0
     fi
-    printf '[cp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
+    printf '[cmdp] error: unpushed %s on %s (local %s != %s) — keep the lease; push, then retry teardown\n' \
       "$wt" "$branch" "${local_rev:0:12}" "$upstream" >&2
     exit 1
   fi
   if git -C "$wt" rev-parse --verify --quiet "origin/$branch" >/dev/null; then
-    printf '[cp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
+    printf '[cmdp] error: unpushed %s on %s (local tip != origin/%s) — keep the lease; push, then retry teardown\n' \
       "$wt" "$branch" "$branch" >&2
     exit 1
   fi
@@ -3593,7 +3593,7 @@ assert_clean_and_pushed() {
       fi
     fi
   fi
-  printf '[cp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n' \
+  printf '[cmdp] error: unpushed %s branch %s has no upstream and is not on origin — keep the lease; push, then retry teardown\n' \
     "$wt" "$branch" >&2
   exit 1
 }
@@ -3685,7 +3685,7 @@ cmd_dispatch() {
       if command -v treehouse >/dev/null 2>&1; then
         home_abs="$(cd "$CP_HOME" && pwd -P)"
         (cd "$home_abs" && treehouse return --force "$DISPATCH_LEASED_WT") >&2 \
-          || printf '[cp] error: treehouse return --force failed for %s during cleanup — lease may still be held\n' "$DISPATCH_LEASED_WT" >&2
+          || printf '[cmdp] error: treehouse return --force failed for %s during cleanup — lease may still be held\n' "$DISPATCH_LEASED_WT" >&2
       fi
     fi
   }
@@ -3697,7 +3697,7 @@ cmd_dispatch() {
   branch="$br_id"
 
   if ! "$PROG" check --project "$project" "$wt" >&2; then
-    die "bin/cp check failed for $wt — returned the lease; fix the precheck, then retry"
+    die "bin/cmdp check failed for $wt — returned the lease; fix the precheck, then retry"
   fi
 
   parent="$(muxa_whoami_name)"
@@ -4070,25 +4070,25 @@ PY
     printf '\nForbid: %s\n' "${forbid[*]}"
   fi
   if [[ "$host_missing" -ne 0 ]]; then
-    printf '\n[cp] error: one or more host tools are missing — run bin/install.sh\n' >&2
+    printf '\n[cmdp] error: one or more host tools are missing — run bin/install.sh\n' >&2
     exit 2
   fi
   if [[ "$muxa_version_ok" -eq 0 ]]; then
-    printf '\n[cp] error: muxa is not %s — run bin/install.sh (pins muxa %s)\n' \
+    printf '\n[cmdp] error: muxa is not %s — run bin/install.sh (pins muxa %s)\n' \
       "$(cp_muxa_pinned_version)" "$(cp_muxa_pinned_version)" >&2
     exit 2
   fi
   if [[ "$br_slug_ok" -eq 0 ]]; then
-    printf '\n[cp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)\n' >&2
+    printf '\n[cmdp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)\n' >&2
     exit 2
   fi
   if [[ "$br_version_ok" -eq 0 ]]; then
-    printf '\n[cp] error: br is not %s — run bin/install.sh (pins beads_rust v%s)\n' \
+    printf '\n[cmdp] error: br is not %s — run bin/install.sh (pins beads_rust v%s)\n' \
       "$(cp_br_pinned_version)" "$(cp_br_pinned_version)" >&2
     exit 2
   fi
   if [[ "$br_tracker_ok" -eq 0 ]]; then
-    printf '\n[cp] error: home tracker schema mismatch — run: br --db %s doctor migrate-schema plan\n' \
+    printf '\n[cmdp] error: home tracker schema mismatch — run: br --db %s doctor migrate-schema plan\n' \
       "$CP_HOME/.beads/beads.db" >&2
     exit 2
   fi
@@ -4161,11 +4161,11 @@ cmd_teardown() {
   validate_job_id "$id"
 
   local row job worker worktree branch kind=""
-  row="$(jobs_lookup "$id")" || die "no runtime row for $id — nothing to tear down (bin/cp jobs list)"
+  row="$(jobs_lookup "$id")" || die "no runtime row for $id — nothing to tear down (bin/cmdp jobs list)"
   IFS=$'\t' read -r job worker worktree branch _ <<< "$row"
-  [[ -n "$worktree" ]] || die "runtime row $id has an empty worktree — keep the lease; fix bin/cp jobs"
-  [[ -n "$worker" ]] || die "runtime row $id has an empty worker — keep the lease; fix bin/cp jobs"
-  [[ -n "$branch" ]] || die "runtime row $id has an empty branch — keep the lease; fix bin/cp jobs"
+  [[ -n "$worktree" ]] || die "runtime row $id has an empty worktree — keep the lease; fix bin/cmdp jobs"
+  [[ -n "$worker" ]] || die "runtime row $id has an empty worker — keep the lease; fix bin/cmdp jobs"
+  [[ -n "$branch" ]] || die "runtime row $id has an empty branch — keep the lease; fix bin/cmdp jobs"
   [[ -d "$worktree" ]] || die "worktree $worktree is missing — keep the lease; restore the path or fix the jobs row"
 
   if [[ "$research_flag" -eq 1 ]]; then

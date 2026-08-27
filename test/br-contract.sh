@@ -9,7 +9,7 @@ set -euo pipefail
 BR052="${BR052:-$HOME/.local/bin/br-0.5.2.parked}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 FIX_SRC="$ROOT/test/fixtures/beads16"
 OPEN_ID="t-m6i"
 PRE_TOTAL=53
@@ -80,9 +80,9 @@ status_err="$("$CP" status --json 2>&1 >/dev/null)"
 status_rc=$?
 set -e
 if [[ "$status_rc" -ne 0 ]] && printf '%s\n' "$status_err" | grep -F -q 'SCHEMA_MISMATCH'; then
-  ok "bin/cp status fail-closed on SCHEMA_MISMATCH stub (not missing issues)"
+  ok "bin/cmdp status fail-closed on SCHEMA_MISMATCH stub (not missing issues)"
 else
-  fail "bin/cp status fail-closed on SCHEMA_MISMATCH stub (rc=$status_rc err=$status_err)"
+  fail "bin/cmdp status fail-closed on SCHEMA_MISMATCH stub (rc=$status_rc err=$status_err)"
 fi
 
 # migrate-schema plan + apply

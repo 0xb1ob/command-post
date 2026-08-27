@@ -25,7 +25,7 @@ c2246b3, green at a8d8ca0 then red at 7b56b22.
 
 ## Teardown: merged PR, auto-deleted head branch
 
-`bin/cp teardown` fail-closes with "branch has no upstream and is not on origin"
+`bin/cmdp teardown` fail-closes with "branch has no upstream and is not on origin"
 when the PR **merged** and GitHub auto-deleted the head branch — absence from
 origin reads like never-pushed. **Do not trust** `git diff origin/main...branch`
 after squash merge; the three-dot diff still shows the branch's own changes.
@@ -37,14 +37,14 @@ after squash merge; the three-dot diff still shows the branch's own changes.
 3. Two-dot tree diff empty: `git diff <branch> origin/main`
 
 Then use the documented teardown fallback from outside the worktree:
-`treehouse return --force`, `muxa kill`, `bin/cp jobs done`.
+`treehouse return --force`, `muxa kill`, `bin/cmdp jobs done`.
 
 Evidence: command-post-gv7 / ethereum-staking-api #352.
 
 ## br list verification cap
 
 br 0.2.19 and 0.5.2 both treat `--limit 0` as unlimited; default is also
-unlimited. Verification paths in `bin/cp` pass `--limit 0` explicitly. When
+unlimited. Verification paths in `bin/cmdp` pass `--limit 0` explicitly. When
 auditing manually, pass `--limit 0` if the result decides membership or
 existence; `--limit 50` caps at 50 and sets `has_more`. Fix tracked:
 [command-post#74](https://github.com/0xb1ob/command-post/issues/74).
@@ -59,7 +59,7 @@ audits, not search result counts.
 When `muxa who --json` shows an idle worker on the target worktree, promote with
 `muxa send` — do not `muxa dispatch` again. `muxa dispatch --cwd` may warn the
 path is occupied and still create a pane; the warning is not permission to
-duplicate. `bin/cp check` fail-closes and names the remedy. New lease only after
+duplicate. `bin/cmdp check` fail-closes and names the remedy. New lease only after
 return or for an independent job.
 
 **Contradicting signals (workaround until #77 / muxa#121):** roster absence is
@@ -104,15 +104,15 @@ Never `git worktree add` under `projects/.worktrees/`. See
 ## Manual lease fallback (#76)
 
 `treehouse get --lease` keys off cwd, not a path argument — never pass
-`projects/<name>` as an arg. Use `bin/cp lease --project NAME` (cd into the
-canonical clone first). If `bin/cp` itself is unavailable: `cd projects/<name>`
-then `treehouse get --lease`; always follow with `bin/cp check --project NAME
+`projects/<name>` as an arg. Use `bin/cmdp lease --project NAME` (cd into the
+canonical clone first). If `bin/cmdp` itself is unavailable: `cd projects/<name>`
+then `treehouse get --lease`; always follow with `bin/cmdp check --project NAME
 "$worktree"`. See [dispatch-hardening.md](dispatch-hardening.md#2-stale-clone--belongs-to-another-repo).
 
 ## Bind the leased path
 
-Bind `treehouse get --lease` output to a variable; pass it to `bin/cp check` and
-dispatch — never retype. `bin/cp dispatch` mechanizes lease-bind when available.
+Bind `treehouse get --lease` output to a variable; pass it to `bin/cmdp check` and
+dispatch — never retype. `bin/cmdp dispatch` mechanizes lease-bind when available.
 
 ## Fan-out and alias collisions
 
@@ -140,7 +140,7 @@ When a worker declares a breaking change to a surface another repo consumes,
 verify against the live consumer **before** merge. A worker's LOUD note enables
 that check — act on it.
 
-Evidence: muxa#48 `who --json` shape vs command-post `bin/cp check`.
+Evidence: muxa#48 `who --json` shape vs command-post `bin/cmdp check`.
 
 ## Gate policy nuances
 
@@ -191,7 +191,7 @@ use the documented manual path when appropriate.
 ## Parent never does the worker job
 
 A request naming a model or capability never licenses bypassing dispatch. The
-compliant path is `bin/cp dispatch ... -- claude --model …` (or routed CLI), not
+compliant path is `bin/cmdp dispatch ... -- claude --model …` (or routed CLI), not
 in-session subagents for the work itself.
 
 ## CI triage: local-green / CI-red

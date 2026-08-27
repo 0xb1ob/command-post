@@ -38,8 +38,8 @@ fi
 
 # Advisory: never fatal. A parent that will not start is worse than a parent
 # with a missing worker CLI, and doctor exits 2 on host gaps by design.
-"$ROOT/bin/cp" doctor >/dev/null 2>&1 || \
-  printf '[cp-parent-start] warning: bin/cp doctor reported gaps — run it for detail.\n' >&2
+"$ROOT/bin/cmdp" doctor >/dev/null 2>&1 || \
+  printf '[cp-parent-start] warning: bin/cmdp doctor reported gaps — run it for detail.\n' >&2
 
 cd "$CP_HOME"
 AGENT_CMD=("${CP_PARENT_CMD:-claude}")

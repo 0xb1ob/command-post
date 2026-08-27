@@ -3,8 +3,8 @@
 # This file is checked in so the app can be reviewed before it exists. Nothing
 # in this repo creates, installs, or authorizes it: creating the app from this
 # manifest and installing it to a workspace is a human step, documented in
-# docs/slack-install.md. Until that happens, `bin/cp relay` posts nothing and
-# exits 3 (not configured), and `bin/cp doctor` stays green.
+# docs/slack-install.md. Until that happens, `bin/cmdp relay` posts nothing and
+# exits 3 (not configured), and `bin/cmdp doctor` stays green.
 #
 # One app per human. Socket Mode delivers each event to exactly one connected
 # client per app, so N people sharing one app round-robin each other's events.

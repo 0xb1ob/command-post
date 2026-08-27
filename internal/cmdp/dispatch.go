@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"fmt"
@@ -176,7 +176,7 @@ func CmdDispatch(e *Env, args []string) error {
 			return err
 		}
 		if _, ok := threadLookup(e, origin); !ok {
-			return failError("origin %s is not bound to a thread — bind it first (bin/cp threads bind)", origin)
+			return failError("origin %s is not bound to a thread — bind it first (bin/cmdp threads bind)", origin)
 		}
 	}
 	if taskFile != "" {
@@ -232,7 +232,7 @@ func CmdDispatch(e *Env, args []string) error {
 			if lookPath("treehouse") != "" {
 				homeAbs, _ := filepath.EvalSymlinks(e.Home)
 				if _, err := runCmdCaptureIn(homeAbs, "treehouse", "return", "--force", wt); err != nil {
-					fmt.Fprintf(os.Stderr, "[cp] error: treehouse return --force failed for %s during cleanup — lease may still be held\n", wt)
+					fmt.Fprintf(os.Stderr, "[cmdp] error: treehouse return --force failed for %s during cleanup — lease may still be held\n", wt)
 				}
 			}
 		}
@@ -245,7 +245,7 @@ func CmdDispatch(e *Env, args []string) error {
 	checkCmd := exec.Command(e.Prog, checkArgs...)
 	checkCmd.Stderr = os.Stderr
 	if err := checkCmd.Run(); err != nil {
-		return failError("bin/cp check failed for %s — returned the lease; fix the precheck, then retry", wt)
+		return failError("bin/cmdp check failed for %s — returned the lease; fix the precheck, then retry", wt)
 	}
 	parent, err := muxaWhoamiName()
 	if err != nil {
@@ -255,8 +255,8 @@ func CmdDispatch(e *Env, args []string) error {
 	if !filepath.IsAbs(artifact) {
 		artifact = filepath.Join(e.Home, "state", "artifacts", brID, "report.md")
 	}
-	briefSrc, _ := os.CreateTemp("", "cp-brief-src.*")
-	briefOut, _ := os.CreateTemp("", "cp-brief-out.*")
+	briefSrc, _ := os.CreateTemp("", "cmdp-brief-src.*")
+	briefOut, _ := os.CreateTemp("", "cmdp-brief-out.*")
 	defer os.Remove(briefSrc.Name())
 	defer os.Remove(briefOut.Name())
 	srcText, err := loadBriefTemplate(e, template)
@@ -278,7 +278,7 @@ func CmdDispatch(e *Env, args []string) error {
 	}
 	dispatchArgs = append(dispatchArgs, "--cwd", wt, "--brief-file", briefOut.Name(), "--")
 	dispatchArgs = append(dispatchArgs, agentCmd...)
-	dispatchErr, _ := os.CreateTemp("", "cp-dispatch-err.*")
+	dispatchErr, _ := os.CreateTemp("", "cmdp-dispatch-err.*")
 	defer os.Remove(dispatchErr.Name())
 	cmd := exec.Command("muxa", dispatchArgs...)
 	var stdout strings.Builder

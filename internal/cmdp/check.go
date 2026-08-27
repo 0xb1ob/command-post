@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"fmt"
@@ -69,7 +69,7 @@ func checkGitPreflight(clone, base string, worktrees []string) bool {
 	fail := false
 	common, err := absGitCommon(clone)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[cp] fail: repo %s has no resolvable git dir\n", clone)
+		fmt.Fprintf(os.Stderr, "[cmdp] fail: repo %s has no resolvable git dir\n", clone)
 		return false
 	}
 	if base == "" {
@@ -78,22 +78,22 @@ func checkGitPreflight(clone, base string, worktrees []string) bool {
 	log("base branch %s", base)
 	primary, _ := primaryWorktree(clone)
 	if primary == "" {
-		fmt.Fprintln(os.Stderr, "[cp] fail: primary checkout: git worktree list returned nothing")
+		fmt.Fprintln(os.Stderr, "[cmdp] fail: primary checkout: git worktree list returned nothing")
 		fail = true
 	} else if st, err := os.Stat(primary); err != nil || !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "[cp] fail: primary %s does not exist\n", primary)
+		fmt.Fprintf(os.Stderr, "[cmdp] fail: primary %s does not exist\n", primary)
 		fail = true
 		primary = ""
 	} else {
 		primary, _ = filepath.EvalSymlinks(primary)
 		branch, _ := gitOutput(primary, "symbolic-ref", "--quiet", "--short", "HEAD")
 		if branch == "" {
-			fmt.Fprintf(os.Stderr, "[cp] fail: primary %s is detached (want %s)\n", primary, base)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: primary %s is detached (want %s)\n", primary, base)
 			fail = true
 		} else if branch == base {
 			log("primary %s on %s", primary, base)
 		} else {
-			fmt.Fprintf(os.Stderr, "[cp] fail: primary %s on %s (want %s)\n", primary, branch, base)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: primary %s on %s (want %s)\n", primary, branch, base)
 			fail = true
 		}
 	}
@@ -103,20 +103,20 @@ func checkGitPreflight(clone, base string, worktrees []string) bool {
 			raw = filepath.Join(clone, arg)
 		}
 		if st, err := os.Stat(raw); err != nil || !st.IsDir() {
-			fmt.Fprintf(os.Stderr, "[cp] fail: worktree %s does not exist\n", arg)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: worktree %s does not exist\n", arg)
 			fail = true
 			continue
 		}
 		wt, _ := filepath.EvalSymlinks(raw)
 		wtCommon, err := absGitCommon(wt)
 		if err != nil || wtCommon == "" {
-			fmt.Fprintf(os.Stderr, "[cp] fail: worktree %s is not a git worktree\n", wt)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: worktree %s is not a git worktree\n", wt)
 			fail = true
 		} else if wtCommon != common {
-			fmt.Fprintf(os.Stderr, "[cp] fail: worktree %s belongs to another repo (%s)\n", wt, wtCommon)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: worktree %s belongs to another repo (%s)\n", wt, wtCommon)
 			fail = true
 		} else if primary != "" && wt == primary {
-			fmt.Fprintf(os.Stderr, "[cp] fail: worktree %s is the primary checkout, not a linked worktree\n", wt)
+			fmt.Fprintf(os.Stderr, "[cmdp] fail: worktree %s is the primary checkout, not a linked worktree\n", wt)
 			fail = true
 		} else {
 			branch, _ := gitOutput(wt, "symbolic-ref", "--quiet", "--short", "HEAD")

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp jobs (runtime map only; not a live dispatch E2E).
+# Unit tests for bin/cmdp jobs (runtime map only; not a live dispatch E2E).
 # Run from the command-post repo: test/jobs.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"bytes"
@@ -319,7 +319,7 @@ func relayResolve(e *Env, brID, kind string) (*relayResolved, error) {
 	row, ok := threadLookup(e, ev.Origin)
 	if !ok {
 		relayDrop(e, brID, kind, ev.Origin, "origin not bound to a thread")
-		return nil, failError("origin %s is not bound to a thread — posting nowhere (bin/cp threads bind)", ev.Origin)
+		return nil, failError("origin %s is not bound to a thread — posting nowhere (bin/cmdp threads bind)", ev.Origin)
 	}
 	templates, err := loadEventTemplates(e)
 	if err != nil {

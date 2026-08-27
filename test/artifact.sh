@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp artifact (isolated temp br db; not HOME or this worktree).
+# Unit tests for bin/cmdp artifact (isolated temp br db; not HOME or this worktree).
 # Run from the command-post repo: test/artifact.sh
 set -euo pipefail
 
@@ -12,7 +12,7 @@ BR_BIN="$(command -v "$BR")"
 export PATH="$(dirname "$BR_BIN"):$PATH"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

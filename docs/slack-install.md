@@ -3,21 +3,21 @@
 Everything before this document is merged and inert. This repo ships the
 relay, the thread ledger, and `share/slack-app-manifest.yml`, and it **does
 not** create a Slack app, run an OAuth flow, or hold credentials. Until you do
-the four steps below, `bin/cp relay post` exits `3` (not configured) and posts
-nothing, and `bin/cp doctor` stays green.
+the four steps below, `bin/cmdp relay post` exits `3` (not configured) and posts
+nothing, and `bin/cmdp doctor` stays green.
 
 Design: [command-post#83](https://github.com/0xb1ob/command-post/pull/83) for
 origin scoping, `reports/origin-scoping.md` for the redaction rule.
 
 ## What is already true after merge
 
-- `state/jobs.tsv` carries an `origin` column; `bin/cp dispatch --origin` stamps
+- `state/jobs.tsv` carries an `origin` column; `bin/cmdp dispatch --origin` stamps
   it (default `terminal`, which posts nowhere).
 - `state/threads.tsv` maps an origin id to one Slack thread
-  (`bin/cp threads bind`).
-- `bin/cp relay render` renders one templated job event from the ledger.
-  `bin/cp relay post` would post it — and refuses, fail-closed, with no tokens.
-- `bin/cp threads events` / `bin/cp threads status ID` show a thread exactly
+  (`bin/cmdp threads bind`).
+- `bin/cmdp relay render` renders one templated job event from the ledger.
+  `bin/cmdp relay post` would post it — and refuses, fail-closed, with no tokens.
+- `bin/cmdp threads events` / `bin/cmdp threads status ID` show a thread exactly
   what it may see: its own origin, cross-origin blockers redacted.
 - The parent never writes to Slack. The STATUS BLOCK is terminal-only.
 
@@ -83,8 +83,8 @@ not be able to send your bot token to someone else's host.
 Confirm:
 
 ```bash
-bin/cp relay status      # slack: configured
-bin/cp doctor            # Slack relay: tokens: configured
+bin/cmdp relay status      # slack: configured
+bin/cmdp doctor            # Slack relay: tokens: configured
 ```
 
 ### 4. Bind a thread and post one event
@@ -94,16 +94,16 @@ thread's channel id and parent-message `ts` (Slack **Copy link** gives
 `…/archives/C0123ABCDEF/p1712345678000100` — the ts is `1712345678.000100`):
 
 ```bash
-bin/cp threads bind acme-launch channel=C0123ABCDEF thread_ts=1712345678.000100
-bin/cp dispatch --project acme --br-id acme-42 --origin acme-launch -- ...
-bin/cp relay render --br-id acme-42 --kind dispatched   # read it before posting
-bin/cp relay post   --br-id acme-42 --kind dispatched
+bin/cmdp threads bind acme-launch channel=C0123ABCDEF thread_ts=1712345678.000100
+bin/cmdp dispatch --project acme --br-id acme-42 --origin acme-launch -- ...
+bin/cmdp relay render --br-id acme-42 --kind dispatched   # read it before posting
+bin/cmdp relay post   --br-id acme-42 --kind dispatched
 ```
 
 Then read back what the machine said, which is the point of the outbound log:
 
 ```bash
-cat "$(bin/cp threads log acme-launch)"
+cat "$(bin/cmdp threads log acme-launch)"
 ```
 
 ## Where the relay runs
@@ -111,7 +111,7 @@ cat "$(bin/cp threads log acme-launch)"
 The relay is a muxa **child of the parent** (or a subprocess of that child), so
 it costs no muxa change: children cannot message each other, and the parent
 keeps its one-root shape. Command-post never calls `tmux`, so making that pane
-is a `muxa` spawn from the parent, not something `bin/cp` does for you. For the
+is a `muxa` spawn from the parent, not something `bin/cmdp` does for you. For the
 parent itself, see [always-on-parent.md](always-on-parent.md).
 
 ## Identity
@@ -134,7 +134,7 @@ steer and only the owner can mutate.
 | Viewer | Sees | Rendered by |
 |---|---|---|
 | Operator (terminal) | Everything: full STATUS BLOCK, all origins, parent prose | The parent's turn |
-| A bound thread | Templated events + status for its own origin only | `bin/cp relay`, from the ledger |
+| A bound thread | Templated events + status for its own origin only | `bin/cmdp relay`, from the ledger |
 | Other parents | Whatever a human posts in a thread they are in | Slack itself |
 
 A thread whose job is `br dep`-blocked by another origin's job sees `blocked`
@@ -145,6 +145,6 @@ labels by contract, so naming the blocker would leak the other origin's work.
 ## Uninstall
 
 Revoke the tokens in the Slack app settings, `rm -rf "$CP_HOME/state/slack"`,
-and `bin/cp threads unbind <origin>` for each bound thread. Outbound logs under
+and `bin/cmdp threads unbind <origin>` for each bound thread. Outbound logs under
 `state/threads/` are kept on unbind — they are your audit trail; delete them
 yourself when you are done with them.
