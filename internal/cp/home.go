@@ -46,6 +46,13 @@ func NewEnv() (*Env, error) {
 				home = resolved
 			}
 		}
+	} else if _, err := os.Stat(filepath.Join(home, "bin", "install.sh")); err == nil {
+		// A release binary lives at <prefix>/bin/cp, so the executable-relative
+		// root is the install prefix, not a checkout — share/, templates/,
+		// lib/status/ and bin/install.sh would all resolve under it. When
+		// CP_HOME names a real checkout, that is the tracked root too.
+		// Deliberately not EvalSymlinks'd: CP_HOME is used verbatim elsewhere.
+		root = home
 	}
 	jf := os.Getenv("CP_JOBS_FILE")
 	if jf == "" {
