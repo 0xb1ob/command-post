@@ -18,7 +18,7 @@ BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 COPY="$(command -v /bin/cp || command -v /usr/bin/cp)"
 [[ -x "$COPY" ]] || { echo "[install] fatal: no POSIX cp found" >&2; exit 1; }
 
-MUXA_VERSION_PIN="1.0.19"
+MUXA_VERSION_PIN="1.0.20"
 CMDP_VERSION_PIN="0.3.0"
 BR_VERSION_PIN="v0.5.2"
 BR_VERSION="${BR_VERSION_PIN#v}"
