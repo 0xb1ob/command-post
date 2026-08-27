@@ -439,6 +439,20 @@ install_share_data() {
     "$COPY" "$f" "$dest/$(basename "$f")"
   done
   log "share: registries -> $dest"
+
+  # templates/ is resolved the same prefix-relative way (gate rubric, briefs).
+  local tdest
+  tdest="$(dirname "$dest")/templates"
+  if [[ -d "$ROOT/templates" ]]; then
+    mkdir -p "$tdest"
+    for f in "$ROOT"/templates/*; do
+      [[ -f "$f" ]] || continue
+      "$COPY" "$f" "$tdest/$(basename "$f")"
+    done
+    log "templates: -> $tdest"
+  else
+    warn "templates: missing $ROOT/templates"
+  fi
 }
 
 # Tracked source of truth is skills/. Agent CLIs discover project skills under
