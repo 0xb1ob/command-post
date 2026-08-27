@@ -18,6 +18,11 @@ fail() {
   printf 'not ok %d - %s\n' "$n" "$1"
 }
 
+# The muxa pin is declared once, in bin/install.sh. Deriving it here keeps the
+# shim and the assertion from drifting every time the pin moves.
+MUXA_PIN="$(sed -n 's/^MUXA_VERSION_PIN="\(.*\)"$/\1/p' "$ROOT/bin/install.sh")"
+[[ -n "$MUXA_PIN" ]] || { echo "cannot read MUXA_VERSION_PIN from bin/install.sh" >&2; exit 1; }
+
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-doctor.XXXXXX")"
 ORIG_PATH="$PATH"
 trap 'rm -rf "$TMP"' EXIT
@@ -67,10 +72,10 @@ setup_path_with() {
 }
 
 # muxa/br/treehouse shims for doctor host section when real ones absent from trimmed path
-cat > "$TMP/shim/muxa" <<'EOF'
+cat > "$TMP/shim/muxa" <<EOF
 #!/bin/sh
-if [ "$1" = "version" ]; then
-  printf '1.0.19 (test)\n'
+if [ "\$1" = "version" ]; then
+  printf '${MUXA_PIN} (test)\\n'
   exit 0
 fi
 exit 0
@@ -315,8 +320,8 @@ if printf '%s\n' "$out" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 assert d["host"]["muxa"]["version_ok"] is False
-assert any(m["what"] == "muxa 1.0.19" for m in d["missing"])
-'; then
+assert any(m["what"] == "muxa " + sys.argv[1] for m in d["missing"])
+' "$MUXA_PIN"; then
   ok "doctor JSON reports muxa version mismatch"
 else
   fail "doctor JSON muxa version mismatch (out=$out)"
