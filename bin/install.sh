@@ -410,6 +410,7 @@ EOF
     log "exists: .beads/"
   fi
 
+  install_share_data
   copy_skills_to_harness
   ensure_muxa_hooks
 
@@ -418,6 +419,26 @@ EOF
   if [[ -x "$ROOT/bin/cp" ]]; then
     "$ROOT/bin/cp" models refresh --quiet >/dev/null 2>&1 || true
   fi
+}
+
+# The release binary resolves share/ relative to its own install prefix
+# ($BIN/../share), not CP_HOME. A clone-and-go install ships only the binary,
+# so the CLI registry has to be placed there too or dispatch fails with
+# "missing CLI registry".
+install_share_data() {
+  local dest="${BIN%/bin}/share"
+  [[ "$dest" == "$BIN" ]] && dest="$(dirname "$BIN")/share"
+  [[ -d "$ROOT/share" ]] || {
+    warn "share: missing $ROOT/share"
+    return 0
+  }
+  mkdir -p "$dest"
+  local f
+  for f in "$ROOT"/share/*.tsv; do
+    [[ -f "$f" ]] || continue
+    "$COPY" "$f" "$dest/$(basename "$f")"
+  done
+  log "share: registries -> $dest"
 }
 
 # Tracked source of truth is skills/. Agent CLIs discover project skills under
