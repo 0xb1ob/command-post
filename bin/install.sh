@@ -16,7 +16,7 @@ COPY="$(command -v /bin/cp || command -v /usr/bin/cp)"
 [[ -x "$COPY" ]] || { echo "[install] fatal: no POSIX cp found" >&2; exit 1; }
 
 MUXA_VERSION_PIN="1.0.19"
-CP_VERSION_PIN="0.1.0"
+CP_VERSION_PIN="0.2.0"
 BR_VERSION_PIN="v0.5.2"
 BR_VERSION="${BR_VERSION_PIN#v}"
 

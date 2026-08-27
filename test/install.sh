@@ -61,7 +61,7 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
   && fail "hook script does not assume command-post ships bin/muxa" \
   || ok "hook script does not assume command-post ships bin/muxa"
 
-has "$INSTALL" 'CP_VERSION_PIN="0.1.0"' \
+has "$INSTALL" 'CP_VERSION_PIN="0.2.0"' \
   "install.sh declares cp pin"
 lacks "$INSTALL" 'python3' \
   "install.sh no longer requires python3 for bin/cp"
