@@ -60,7 +60,7 @@ cat > "$TMP/jobs.tsv" <<'EOF'
 job-a	solo-root	/home/demo	job-a
 EOF
 mkdir -p "$(dirname "$CP_JOBS_FILE")"
-cp "$TMP/jobs.tsv" "$CP_JOBS_FILE"
+/bin/cp "$TMP/jobs.tsv" "$CP_JOBS_FILE"
 
 cat > "$TMP/br-list-stub.sh" <<EOF
 #!/bin/sh

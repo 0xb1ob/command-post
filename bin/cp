@@ -4,6 +4,15 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROG="${CP_BIN:-$ROOT/bin/.cp-bin}"
+# Clone-and-go: no local Go build, but install.sh fetched a release binary.
+if [[ ! -x "$PROG" ]]; then
+  RELEASE="${CP_BIN_DIR:-$HOME/.local/bin}/cp"
+  # Guard against pointing at this launcher (or /bin/cp) instead of the CLI.
+  if [[ -x "$RELEASE" && ! "$RELEASE" -ef "${BASH_SOURCE[0]}" ]] &&
+    [[ "$(head -c 2 "$RELEASE")" != '#!' ]]; then
+    PROG="$RELEASE"
+  fi
+fi
 if [[ ! -x "$PROG" ]]; then
   printf '[cp] error: cp binary not found at %s\n' "$PROG" >&2
   printf '[cp] hint: go build -ldflags="-X github.com/0xb1ob/command-post/internal/cp.Version=dev" -o bin/.cp-bin ./cmd/cp\n' >&2

@@ -39,7 +39,7 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cp-br-contract.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
-cp -R "$FIX_SRC" "$TMP/beads16"
+/bin/cp -R "$FIX_SRC" "$TMP/beads16"
 DB="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$TMP/beads16/.beads/beads.db")"
 
 # --- SCHEMA_MISMATCH on schema-16 copy ---

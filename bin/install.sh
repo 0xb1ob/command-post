@@ -10,6 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
+# The command-post CLI is itself named `cp` and lands in $BIN, which is on PATH
+# ahead of /bin. Every POSIX copy in this script must therefore be explicit.
+COPY="$(command -v /bin/cp || command -v /usr/bin/cp)"
+[[ -x "$COPY" ]] || { echo "[install] fatal: no POSIX cp found" >&2; exit 1; }
+
 MUXA_VERSION_PIN="1.0.19"
 CP_VERSION_PIN="0.1.0"
 BR_VERSION_PIN="v0.5.2"
@@ -175,7 +180,7 @@ install_cp() {
   curl -fsSL "$url" -o "$dest" || {
     if [[ -x "$ROOT/bin/.cp-bin" ]] && "$ROOT/bin/.cp-bin" version >/dev/null 2>&1; then
       log "cp: release fetch failed; using checkout binary at $ROOT/bin/.cp-bin"
-      cp "$ROOT/bin/.cp-bin" "$dest"
+      "$COPY" "$ROOT/bin/.cp-bin" "$dest"
     else
       die "cp install failed (could not fetch $url). Set CP_INSTALL_URL or build with: go build -o bin/.cp-bin ./cmd/cp"
     fi
@@ -408,9 +413,10 @@ EOF
   copy_skills_to_harness
   ensure_muxa_hooks
 
-  # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline.
+  # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline
+  # or if the pinned release predates `cp models` (v0.1.0 does).
   if [[ -x "$ROOT/bin/cp" ]]; then
-    "$ROOT/bin/cp" models refresh --quiet || true
+    "$ROOT/bin/cp" models refresh --quiet >/dev/null 2>&1 || true
   fi
 }
 
@@ -438,7 +444,7 @@ copy_skills_to_harness() {
       [[ -d "$skill_dir" ]] || continue
       name="$(basename "$skill_dir")"
       rm -rf "$ROOT/$dest/$name"
-      cp -R "$skill_dir" "$ROOT/$dest/$name"
+      "$COPY" -R "$skill_dir" "$ROOT/$dest/$name"
     done
     log "skills: copied to $dest"
   done
