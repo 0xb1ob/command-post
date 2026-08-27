@@ -10,6 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${CP_BIN_DIR:-$HOME/.local/bin}"
 
+# The command-post CLI is itself named `cp` and lands in $BIN, which is on PATH
+# ahead of /bin. Every POSIX copy in this script must therefore be explicit.
+COPY="$(command -v /bin/cp || command -v /usr/bin/cp)"
+[[ -x "$COPY" ]] || { echo "[install] fatal: no POSIX cp found" >&2; exit 1; }
+
 MUXA_VERSION_PIN="1.0.19"
 CP_VERSION_PIN="0.1.0"
 BR_VERSION_PIN="v0.5.2"
@@ -175,7 +180,7 @@ install_cp() {
   curl -fsSL "$url" -o "$dest" || {
     if [[ -x "$ROOT/bin/.cp-bin" ]] && "$ROOT/bin/.cp-bin" version >/dev/null 2>&1; then
       log "cp: release fetch failed; using checkout binary at $ROOT/bin/.cp-bin"
-      cp "$ROOT/bin/.cp-bin" "$dest"
+      "$COPY" "$ROOT/bin/.cp-bin" "$dest"
     else
       die "cp install failed (could not fetch $url). Set CP_INSTALL_URL or build with: go build -o bin/.cp-bin ./cmd/cp"
     fi
@@ -405,12 +410,48 @@ EOF
     log "exists: .beads/"
   fi
 
+  install_share_data
   copy_skills_to_harness
   ensure_muxa_hooks
 
-  # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline.
+  # Best-effort catalog fill; clone-and-go must not fail if the CLI is offline
+  # or if the pinned release predates `cp models` (v0.1.0 does).
   if [[ -x "$ROOT/bin/cp" ]]; then
-    "$ROOT/bin/cp" models refresh --quiet || true
+    "$ROOT/bin/cp" models refresh --quiet >/dev/null 2>&1 || true
+  fi
+}
+
+# The release binary resolves share/ relative to its own install prefix
+# ($BIN/../share), not CP_HOME. A clone-and-go install ships only the binary,
+# so the CLI registry has to be placed there too or dispatch fails with
+# "missing CLI registry".
+install_share_data() {
+  local dest="${BIN%/bin}/share"
+  [[ "$dest" == "$BIN" ]] && dest="$(dirname "$BIN")/share"
+  [[ -d "$ROOT/share" ]] || {
+    warn "share: missing $ROOT/share"
+    return 0
+  }
+  mkdir -p "$dest"
+  local f
+  for f in "$ROOT"/share/*.tsv; do
+    [[ -f "$f" ]] || continue
+    "$COPY" "$f" "$dest/$(basename "$f")"
+  done
+  log "share: registries -> $dest"
+
+  # templates/ is resolved the same prefix-relative way (gate rubric, briefs).
+  local tdest
+  tdest="$(dirname "$dest")/templates"
+  if [[ -d "$ROOT/templates" ]]; then
+    mkdir -p "$tdest"
+    for f in "$ROOT"/templates/*; do
+      [[ -f "$f" ]] || continue
+      "$COPY" "$f" "$tdest/$(basename "$f")"
+    done
+    log "templates: -> $tdest"
+  else
+    warn "templates: missing $ROOT/templates"
   fi
 }
 
@@ -438,7 +479,7 @@ copy_skills_to_harness() {
       [[ -d "$skill_dir" ]] || continue
       name="$(basename "$skill_dir")"
       rm -rf "$ROOT/$dest/$name"
-      cp -R "$skill_dir" "$ROOT/$dest/$name"
+      "$COPY" -R "$skill_dir" "$ROOT/$dest/$name"
     done
     log "skills: copied to $dest"
   done

@@ -103,7 +103,7 @@ case "$cmd" in
       esac
     done
     if [ -n "$brief" ] && [ -f "$brief" ]; then
-      cp "$brief" "${CP_TEST_BRIEF_COPY:?}"
+      /bin/cp "$brief" "${CP_TEST_BRIEF_COPY:?}"
     fi
     if [ -n "${CP_TEST_DISPATCH_CWD:-}" ]; then
       cwd="$CP_TEST_DISPATCH_CWD"

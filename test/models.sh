@@ -259,7 +259,7 @@ fi
 exit 0
 EOF
 chmod +x "$TMP/shim/agent"
-cp "$tsv" "$TMP/prev.tsv"
+/bin/cp "$tsv" "$TMP/prev.tsv"
 "$CP" models refresh --cli agent --quiet 2>"$TMP/err.fail" || true
 if grep -F -q 'status=failed' "$CP_HOME/data/models/agent.meta" \
   && python3 -c 'import sys; sys.exit(open(sys.argv[1]).read()!=open(sys.argv[2]).read())' \

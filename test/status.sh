@@ -108,7 +108,7 @@ job-closed	closing-crane	$TMP/wt-closing	job-closed
 job-orphan	vanished-worker	$TMP/wt-orphan	job-orphan
 EOF
 mkdir -p "$(dirname "$CP_JOBS_FILE")"
-cp "$TMP/jobs.tsv" "$CP_JOBS_FILE"
+/bin/cp "$TMP/jobs.tsv" "$CP_JOBS_FILE"
 
 cat > "$TMP/br-list-stub.sh" <<EOF
 #!/bin/sh
