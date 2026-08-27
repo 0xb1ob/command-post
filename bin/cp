@@ -19,4 +19,7 @@ if [[ ! -x "$PROG" ]]; then
   printf '[cp] hint: or run bin/install.sh to fetch a release binary\n' >&2
   exit 2
 fi
+# The release binary infers home from its own path (~/.local/bin/cp -> ~/.local).
+# This launcher knows the real checkout root; pass it through.
+export CP_HOME="${CP_HOME:-$ROOT}"
 exec "$PROG" "$@"
