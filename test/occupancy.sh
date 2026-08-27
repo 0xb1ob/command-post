@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp check occupancy via muxa who --json (stubbed; not a
+# Unit tests for bin/cmdp check occupancy via muxa who --json (stubbed; not a
 # live dispatch E2E). Occupancy is the JSON roster shape, never the human
 # table, and never who --json's exit status (pre-#49 printed the table with
 # exit 0). state is idle|busy|ghost (status key is gone). Run from the
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

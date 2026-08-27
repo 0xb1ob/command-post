@@ -111,9 +111,9 @@ fi
 
 # doctor gaps are advisory: a parent that will not start is worse than a gap.
 if grep -F -q 'doctor >/dev/null 2>&1 ||' "$START"; then
-  ok "bin/cp doctor is advisory, not a gate, on parent start"
+  ok "bin/cmdp doctor is advisory, not a gate, on parent start"
 else
-  fail "bin/cp doctor is advisory, not a gate, on parent start"
+  fail "bin/cmdp doctor is advisory, not a gate, on parent start"
 fi
 
 # --- example launchd item --------------------------------------------------

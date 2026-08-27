@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"bufio"
@@ -260,13 +260,13 @@ func validateWorkerArgv0(e *Env, argv0, role, source string) error {
 		return failError("missing CLI registry: %s", e.ClisTSV())
 	}
 	if !cliIsSupported(e, argv0) {
-		fmt.Fprintf(os.Stderr, "[cp] error: worker CLI %q is not in share/clis.tsv (role=%s, source=%s)\n", argv0, role, source)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: worker CLI %q is not in share/clis.tsv (role=%s, source=%s)\n", argv0, role, source)
 		fmt.Fprintln(os.Stderr, "Use a supported CLI from share/clis.tsv, or pass an explicit -- CMD override.")
-		fmt.Fprintln(os.Stderr, "bin/cp doctor lists installed CLIs.")
+		fmt.Fprintln(os.Stderr, "bin/cmdp doctor lists installed CLIs.")
 		os.Exit(2)
 	}
 	if cliIsForbidden(loadForbidCLIs(e), argv0) {
-		fmt.Fprintf(os.Stderr, "[cp] error: worker CLI %q is forbidden (forbid row in data/routing.tsv, role=%s)\n", argv0, role)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: worker CLI %q is forbidden (forbid row in data/routing.tsv, role=%s)\n", argv0, role)
 		fmt.Fprintln(os.Stderr, "Remove the forbid row or pick another CLI for that role in data/routing.tsv.")
 		os.Exit(2)
 	}
@@ -281,7 +281,7 @@ func requireWorkerCmd(e *Env, argv0, role, source string) error {
 		return nil
 	}
 	candidates := listDerivedCandidates(e)
-	fmt.Fprintf(os.Stderr, "[cp] error: worker CLI %q not on PATH (role=%s, source=%s)\n", argv0, role, source)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: worker CLI %q not on PATH (role=%s, source=%s)\n", argv0, role, source)
 	if len(candidates) == 0 {
 		installable, _ := listSupportedCLIs(e)
 		if len(installable) > 0 {
@@ -292,13 +292,13 @@ func requireWorkerCmd(e *Env, argv0, role, source string) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "Install %q, or set that role in data/routing.tsv to an installed CLI from share/clis.tsv.\n", argv0)
 	}
-	fmt.Fprintln(os.Stderr, "bin/cp doctor lists installed CLIs.")
+	fmt.Fprintln(os.Stderr, "bin/cmdp doctor lists installed CLIs.")
 	os.Exit(2)
 	return nil
 }
 
 func announceRoutingResolution(role, source, reason string, argv []string) {
-	fmt.Fprintf(os.Stderr, "[cp] routing: role=%s argv=%q source=%s (%s)\n", role, strings.Join(argv, " "), source, reason)
+	fmt.Fprintf(os.Stderr, "[cmdp] routing: role=%s argv=%q source=%s (%s)\n", role, strings.Join(argv, " "), source, reason)
 }
 
 func dispatchRoleFromTemplate(template string) string {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp gate (isolated temp br db; reviewer stubbed via CP_GATE_CMD).
+# Unit tests for bin/cmdp gate (isolated temp br db; reviewer stubbed via CP_GATE_CMD).
 # Run from the command-post repo: test/gate.sh
 set -euo pipefail
 
@@ -12,7 +12,7 @@ BR_BIN="$(command -v "$BR")"
 export PATH="$(dirname "$BR_BIN"):$PATH"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

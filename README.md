@@ -24,7 +24,7 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 
 **Phase 1 — deps**
 
-1. Checks prerequisites: `git`, `curl`, `tmux`, `python3` (`python3` is for `bin/cp` JSON/brief/gate/status — not required by muxa; see issue #27)
+1. Checks prerequisites: `git`, `curl`, `tmux`, `python3` (`python3` is for `bin/cmdp` JSON/brief/gate/status — not required by muxa; see issue #27)
 2. Installs [`muxa`](https://github.com/0xb1ob/muxa) onto `~/.local/bin` (refreshes global skills on re-run; its installer stops/restarts the broker daemon in tmux), then verifies the `muxa` binary. muxa is one binary — the paste broker is `muxa broker start`, not a separate `muxa-broker` release asset. Without a running broker, `muxa send` exits non-zero and pastes nothing (fail-closed). The installer runs from a scratch dir, so a Go toolchain can never mistake this repo (no `go.mod`, and it must not gain one) for muxa's module.
 3. Installs [`br`](https://github.com/Dicklesworthstone/beads_rust) (beads) with `--skip-skills`
 4. Installs [`treehouse`](https://github.com/kunchenguid/treehouse) for worktree leasing
@@ -40,6 +40,18 @@ Idempotent clone-and-go setup. Takes no arguments. It:
 Put `~/.local/bin` on your `PATH` if it is not already. Re-run anytime; existing
 `br` / `treehouse` installs are skipped, muxa is refreshed, scaffold steps are no-ops when already present.
 
+**The CLI installs as `cmdp`.** It used to install as `cp`, which shadowed
+POSIX `cp` for the operator's whole shell — `~/.local/bin` precedes `/bin` on
+`PATH`, so every `cp -R` on the machine hit the command-post CLI instead. Phase 1
+now removes a pre-existing `~/.local/bin/cp` when it can prove that file is our
+binary (it answers `version` with a command-post banner), logging what it removed
+and why. Anything it cannot identify — a system `cp`, a symlink to one, a shell
+script — is left in place with a warning naming the exact path to remove by hand.
+
+Environment variables keep the `CP_` prefix (`CP_HOME`, `CP_BIN`, `CP_BIN_DIR`,
+`CP_JOBS_FILE`, `CP_GATE_CMD`, …). `CP_` namespaces *command post*, not the
+binary, and operator shells, launchd items, and hooks already export them.
+
 Ask the agent to do work (a GitHub issue URL, or an ad-hoc request). It will
 clone the target repo into `projects/<name>` if needed, record it in
 `data/projects.md`, track the job with `br`, lease a worktree, and dispatch a
@@ -52,13 +64,13 @@ worker.
 | `AGENTS.md`, `CLAUDE.md` | yes | Operating contract |
 | `README.md` | yes | This file |
 | `bin/install.sh` | yes | Clone-and-go setup (deps + scaffold + skill copies; warns on stale home clones) |
-| `bin/cp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), CLI discovery (`doctor`), model catalog (`models`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`), Slack thread bindings (`threads`), outbound Slack relay (`relay`) |
+| `bin/cmdp` | yes | Dispatch precheck (`check`), runtime jobs map (`jobs`), artifact store (`artifact`), quality gate (`gate`), CLI discovery (`doctor`), model catalog (`models`), read-only fleet snapshot (`status [--json] [--html] [--serve [--port N]]`), Slack thread bindings (`threads`), outbound Slack relay (`relay`) |
 | `share/clis.tsv` | yes | Supported worker CLI registry (argv0 → muxa kind → receipt strategy) |
 | `share/families.tsv` | yes | Model-family classifiers (slug regex → cursor/grok/anthropic/…) |
 | `share/slack-app-manifest.yml` | yes | Slack app manifest, one app per human — nothing here creates or installs it |
-| `templates/thread-events.tsv` | yes | Slack thread event templates read by `bin/cp relay` |
+| `templates/thread-events.tsv` | yes | Slack thread event templates read by `bin/cmdp relay` |
 | `docs/` | yes | Operator-facing procedure (`docs/slack-install.md`, `docs/always-on-parent.md`) |
-| `test/` | yes | Unit tests for `bin/cp` (`jobs`, occupancy, check, playbook, artifact, gate, status, threads) |
+| `test/` | yes | Unit tests for `bin/cmdp` (`jobs`, occupancy, check, playbook, artifact, gate, status, threads) |
 | `test/fixtures/` | yes | Golden-file fixtures (`status/table.golden`; HTML snapshots are generated, not golden-filed) |
 | `reports/` | yes | Design research for this repo |
 | `skills/` | yes | Canonical agent skills (`cp-memory`) |
@@ -79,14 +91,14 @@ Do not commit `data/`, `state/`, `projects/`, `.beads/`, or harness skill copies
 
 - **GitHub Issues** — the real product backlog, when the caller points at one
 - **`br`** — current jobs in this command post, and closed issues as job history
-- **`bin/cp jobs`** — runtime-only (worker / worktree / branch / `dispatched_at`, keyed by br id); gone at teardown
+- **`bin/cmdp jobs`** — runtime-only (worker / worktree / branch / `dispatched_at`, keyed by br id); gone at teardown
 - **`data/learnings.md`** — budgeted cross-repo memory (see `AGENTS.md`)
 
 `br` is not a mirror of GitHub. Install runtime tools with `bin/install.sh`.
 
-Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Run `bin/cp doctor` after install to verify host tools and worker CLI routing. Dispatch and mail
+Worker dispatch also expects `muxa` and `treehouse` on `PATH`. Run `bin/cmdp doctor` after install to verify host tools and worker CLI routing. Dispatch and mail
 use the **muxa-parent** skill; the job playbook lives in `AGENTS.md`. Before
-`muxa dispatch`, run `bin/cp check --project <name> <worktree>` (canonical clone,
+`muxa dispatch`, run `bin/cmdp check --project <name> <worktree>` (canonical clone,
 git preflight, promote-not-spawn occupancy via `muxa who --json` (`state=idle|busy|ghost`)). Idle worker on a held
 worktree → `muxa send` (promote). `muxa dispatch --cwd` warns if that cwd is
 already occupied; do not dispatch a duplicate. Bind the leased path to a

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp status (single-shot read-only fleet snapshot; not a
+# Unit tests for bin/cmdp status (single-shot read-only fleet snapshot; not a
 # live dispatch E2E). Sources are stubbed: MUXA_WHO_CMD, MUXA_BROKER_CMD,
 # BR_LIST_CMD, CP_JOBS_FILE. Fixtures live under $TMP (heredocs) plus one
 # tracked golden file, test/fixtures/status/table.golden, for the human
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 GOLDEN="$ROOT/test/fixtures/status/table.golden"
 failed=0
 n=0

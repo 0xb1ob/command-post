@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -75,7 +75,7 @@ func artifactAdd(e *Env, id, file string) error {
 		return err
 	}
 	info, _ := os.Stat(file)
-	tmp, err := os.CreateTemp("", "cp-artifact.*")
+	tmp, err := os.CreateTemp("", "cmdp-artifact.*")
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func artifactTeardownGuard(e *Env, id string) error {
 		return nil
 	}
 	sort.Strings(extras)
-	fmt.Fprintln(os.Stderr, "[cp] fail: artifact dir has unmirrored files — keep the lease; mirror with artifact add or copy out before teardown:")
+	fmt.Fprintln(os.Stderr, "[cmdp] fail: artifact dir has unmirrored files — keep the lease; mirror with artifact add or copy out before teardown:")
 	for _, p := range extras {
 		fmt.Fprintf(os.Stderr, "  %s\n", p)
 	}

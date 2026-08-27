@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp check git/clone preflight (not a live dispatch E2E).
+# Unit tests for bin/cmdp check git/clone preflight (not a live dispatch E2E).
 # Occupancy is stubbed via MUXA_WHO_CMD. Run: test/check.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

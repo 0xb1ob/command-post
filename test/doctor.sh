@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp doctor. PATH-isolated worker CLI shims.
+# Unit tests for bin/cmdp doctor. PATH-isolated worker CLI shims.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

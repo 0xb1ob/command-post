@@ -1,20 +1,20 @@
 # Role brief templates
 
-Consumed by `bin/cp dispatch --template NAME`. That command substitutes the tokens below before the brief is pasted. Do not invent tokens. Use them verbatim.
+Consumed by `bin/cmdp dispatch --template NAME`. That command substitutes the tokens below before the brief is pasted. Do not invent tokens. Use them verbatim.
 
 ## Placeholder contract
 
 | Token | Who substitutes | With |
 | --- | --- | --- |
-| `{{PARENT}}` | `bin/cp dispatch --template` | parent alias (`muxa whoami`) |
-| `{{BRANCH}}` | `bin/cp dispatch --template` | worktree branch name (receipt token) |
-| `{{BR_ID}}` | `bin/cp dispatch --template` | br issue id |
-| `{{ARTIFACT_PATH}}` | `bin/cp dispatch --template` | absolute path outside the worktree for the research artifact |
-| `{{TASK}}` | `bin/cp dispatch --template` | job body |
+| `{{PARENT}}` | `bin/cmdp dispatch --template` | parent alias (`muxa whoami`) |
+| `{{BRANCH}}` | `bin/cmdp dispatch --template` | worktree branch name (receipt token) |
+| `{{BR_ID}}` | `bin/cmdp dispatch --template` | br issue id |
+| `{{ARTIFACT_PATH}}` | `bin/cmdp dispatch --template` | absolute path outside the worktree for the research artifact |
+| `{{TASK}}` | `bin/cmdp dispatch --template` | job body |
 
 `{{ARTIFACT_PATH}}` is outside the worktree so research porcelain stays clean.
 
-`br_id` is also the routing key for Slack thread events: `state/jobs.tsv` maps it to an `origin`, `state/threads.tsv` maps that origin to one thread, and `bin/cp relay` renders the event from `thread-events.tsv`. The envelope below is unchanged — the relay reads the ledger, not mail. A job whose row carries no origin is routable nowhere ([contract](../AGENTS.md#slack-threads-origins)).
+`br_id` is also the routing key for Slack thread events: `state/jobs.tsv` maps it to an `origin`, `state/threads.tsv` maps that origin to one thread, and `bin/cmdp relay` renders the event from `thread-events.tsv`. The envelope below is unchanged — the relay reads the ledger, not mail. A job whose row carries no origin is routable nowhere ([contract](../AGENTS.md#slack-threads-origins)).
 
 ## Envelope spec
 

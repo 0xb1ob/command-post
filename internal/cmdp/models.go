@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"bufio"
@@ -394,23 +394,23 @@ func refreshFailed(e *Env, argv0 string, quiet bool) {
 		if prev == "" {
 			prev = "unknown"
 		}
-		fmt.Fprintf(os.Stderr, "[cp] models: refresh failed for %s — using catalog from %s\n", argv0, prev)
+		fmt.Fprintf(os.Stderr, "[cmdp] models: refresh failed for %s — using catalog from %s\n", argv0, prev)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[cp] models: refresh failed for %s — no catalog\n", argv0)
+	fmt.Fprintf(os.Stderr, "[cmdp] models: refresh failed for %s — no catalog\n", argv0)
 }
 
 func modelsRefreshCLI(e *Env, argv0 string, quiet bool) error {
 	kind, _ := cliKindReceipt(e, argv0)
 	if kind == "" {
 		if !quiet {
-			fmt.Fprintf(os.Stderr, "[cp] models: skip %s (not in share/clis.tsv)\n", argv0)
+			fmt.Fprintf(os.Stderr, "[cmdp] models: skip %s (not in share/clis.tsv)\n", argv0)
 		}
 		return fmt.Errorf("unsupported")
 	}
 	if lookPath(argv0) == "" {
 		if !quiet {
-			fmt.Fprintf(os.Stderr, "[cp] models: skip %s (not on PATH)\n", argv0)
+			fmt.Fprintf(os.Stderr, "[cmdp] models: skip %s (not on PATH)\n", argv0)
 		}
 		return fmt.Errorf("not on PATH")
 	}
@@ -597,7 +597,7 @@ func substituteSlug(e *Env, argv0, wanted, cliKind string) (string, error) {
 		})
 		picked := sameBase[0].slug
 		if picked != wanted {
-			fmt.Fprintf(os.Stderr, "[cp] routing: substituted %s → %s (same-base)\n", wanted, picked)
+			fmt.Fprintf(os.Stderr, "[cmdp] routing: substituted %s → %s (same-base)\n", wanted, picked)
 		}
 		return picked, nil
 	}
@@ -624,7 +624,7 @@ func substituteSlug(e *Env, argv0, wanted, cliKind string) (string, error) {
 			return sameFam[i] < sameFam[j]
 		})
 		picked := sameFam[0]
-		fmt.Fprintf(os.Stderr, "[cp] routing: substituted %s → %s (same-family)\n", wanted, picked)
+		fmt.Fprintf(os.Stderr, "[cmdp] routing: substituted %s → %s (same-family)\n", wanted, picked)
 		return picked, nil
 	}
 	prefer := strings.Split(modelsPreferCSV(e, cliKind), ",")
@@ -654,7 +654,7 @@ func substituteSlug(e *Env, argv0, wanted, cliKind string) (string, error) {
 			return pool[i] < pool[j]
 		})
 		picked := pool[0]
-		fmt.Fprintf(os.Stderr, "[cp] routing: substituted %s → %s (prefer-family)\n", wanted, picked)
+		fmt.Fprintf(os.Stderr, "[cmdp] routing: substituted %s → %s (prefer-family)\n", wanted, picked)
 		return picked, nil
 	}
 	return "", usageError("no allowed catalog slug for role (wanted %s)", wanted)
@@ -725,7 +725,7 @@ func validateCatalog(e *Env, argv0, slug string) error {
 		return usageError("model slug '%s' is not a Claude alias or claude-* name", slug)
 	}
 	if !catalogExists(e, argv0) {
-		fmt.Fprintf(os.Stderr, "[cp] models: no catalog for %s — slug not validated\n", argv0)
+		fmt.Fprintf(os.Stderr, "[cmdp] models: no catalog for %s — slug not validated\n", argv0)
 		return nil
 	}
 	if slugInCatalog(e, argv0, slug) {
@@ -767,7 +767,7 @@ func announceRouting(e *Env, role, source, reason string, argv []string) {
 	if slug == "" {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[cp] routing: model=%s family=%s catalog=%s rule=%s\n",
+	fmt.Fprintf(os.Stderr, "[cmdp] routing: model=%s family=%s catalog=%s rule=%s\n",
 		slug, familyOfSlug(e, slug), catalogStatus(e, argv[0]), jobRule)
 }
 
@@ -813,7 +813,7 @@ func printModelsUsage() {
 	os.Exit(2)
 }
 
-// CmdModels is bin/cp models.
+// CmdModels is bin/cmdp models.
 func CmdModels(e *Env, args []string) error {
 	jsonOut, quiet, all := false, false, false
 	cli, family, action, slug := "", "", "list", ""

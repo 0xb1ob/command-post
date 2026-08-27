@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp status --serve (foreground localhost dashboard).
+# Unit tests for bin/cmdp status --serve (foreground localhost dashboard).
 # Sources are stubbed like test/status.sh. Always kills the background server
 # via trap; no GNU timeout required.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 failed=0
 n=0
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Unit tests for bin/cp models catalog, allowlist, and rubric.
+# Unit tests for bin/cmdp models catalog, allowlist, and rubric.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/bin/cp"
+CP="$ROOT/bin/cmdp"
 FIXTURE="$ROOT/test/fixtures/models/agent-models.txt"
 failed=0
 n=0

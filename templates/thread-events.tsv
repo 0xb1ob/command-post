@@ -1,6 +1,6 @@
 # Slack thread event templates, one line per kind: kind<TAB>template.
-# Read from $CP_HOME/templates/thread-events.tsv by bin/cp relay. Built-in
-# defaults (internal/cp/relay.go) apply for any kind this file omits.
+# Read from $CP_HOME/templates/thread-events.tsv by bin/cmdp relay. Built-in
+# defaults (internal/cmdp/relay.go) apply for any kind this file omits.
 #
 # Placeholders: {{br_id}} {{title}} {{branch}} {{worker}} {{blocked_on}}
 #               {{kind}} {{at}}

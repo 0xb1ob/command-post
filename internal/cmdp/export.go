@@ -1,6 +1,6 @@
-package cp
+package cmdp
 
-// Exported wrappers for cmd/cp.
+// Exported wrappers for cmd/cmdp.
 
 func PrintUsageMain() { printUsage() }
 func HandleErr(err error) { handleErr(err) }

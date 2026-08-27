@@ -2,16 +2,16 @@
 
 ## Problem
 
-`bin/cp teardown` applied the ship gate (clean + pushed) to every job. Research
+`bin/cmdp teardown` applied the ship gate (clean + pushed) to every job. Research
 workers deliberately push nothing — the brief requires a clean tree and no PR —
 so branches cut with `--no-track` at `origin/<default>` never gain an upstream.
 Operators hit:
 
 ```
-[cp] error: unpushed <worktree> branch <id> has no upstream and is not on origin
+[cmdp] error: unpushed <worktree> branch <id> has no upstream and is not on origin
 ```
 
-and had to hand-run `treehouse return --force`, `muxa kill`, and `bin/cp jobs done`
+and had to hand-run `treehouse return --force`, `muxa kill`, and `bin/cmdp jobs done`
 after every research job.
 
 ## Fix

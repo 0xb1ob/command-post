@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"encoding/json"
@@ -171,25 +171,25 @@ func CmdDoctor(e *Env, args []string) error {
 		}
 	}
 	if hostMissing != 0 {
-		fmt.Fprintln(os.Stderr, "\n[cp] error: one or more host tools are missing — run bin/install.sh")
+		fmt.Fprintln(os.Stderr, "\n[cmdp] error: one or more host tools are missing — run bin/install.sh")
 		os.Exit(2)
 	}
 	if !muxaVersionOK {
 		pin := cpMuxaPinnedVersion(e)
-		fmt.Fprintf(os.Stderr, "\n[cp] error: muxa is not %s — run bin/install.sh (pins muxa %s)\n", pin, pin)
+		fmt.Fprintf(os.Stderr, "\n[cmdp] error: muxa is not %s — run bin/install.sh (pins muxa %s)\n", pin, pin)
 		os.Exit(2)
 	}
 	if !brSlugOK {
-		fmt.Fprintln(os.Stderr, "\n[cp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)")
+		fmt.Fprintln(os.Stderr, "\n[cmdp] error: br create lacks --slug — run bin/install.sh (AGENTS.md intake requires it)")
 		os.Exit(2)
 	}
 	if !brVersionOK {
 		pin := cpBRPinnedVersion(e)
-		fmt.Fprintf(os.Stderr, "\n[cp] error: br is not %s — run bin/install.sh (pins beads_rust v%s)\n", pin, pin)
+		fmt.Fprintf(os.Stderr, "\n[cmdp] error: br is not %s — run bin/install.sh (pins beads_rust v%s)\n", pin, pin)
 		os.Exit(2)
 	}
 	if !brTrackerOK {
-		fmt.Fprintf(os.Stderr, "\n[cp] error: home tracker schema mismatch — run: br --db %s doctor migrate-schema plan\n", beadsDB)
+		fmt.Fprintf(os.Stderr, "\n[cmdp] error: home tracker schema mismatch — run: br --db %s doctor migrate-schema plan\n", beadsDB)
 		os.Exit(2)
 	}
 	return nil
@@ -298,7 +298,7 @@ func doctorJSON(e *Env, hostTools []string, brSlugOK, brVersionOK, muxaVersionOK
 		"home": e.Home, "host": host, "clis": clis,
 		"roles": roles, "forbid": forbid, "missing": missing,
 		"models":     doctorModelsJSON(e),
-		"cp_version": Version, "cp_version_ok": cpVersionMatches(),
+		"cmdp_version": Version, "cmdp_version_ok": cmdpVersionMatches(),
 		"slack": doctorSlack(e), "other_parents": others,
 		"status_port": effectiveStatusPort(e.Home),
 	}

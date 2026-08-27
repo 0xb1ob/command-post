@@ -1,4 +1,4 @@
-package cp
+package cmdp
 
 import (
 	"fmt"
@@ -13,12 +13,12 @@ type exitError struct {
 func (e *exitError) Error() string { return e.msg }
 
 func die(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "[cp] error: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: "+format+"\n", args...)
 	os.Exit(1)
 }
 
 func dieUsage(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "[cp] error: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: "+format+"\n", args...)
 	os.Exit(2)
 }
 
@@ -31,7 +31,7 @@ func failError(format string, args ...any) error {
 }
 
 func log(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "[cp] "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "[cmdp] "+format+"\n", args...)
 }
 
 func handleErr(err error) {
@@ -39,10 +39,10 @@ func handleErr(err error) {
 		return
 	}
 	if ee, ok := err.(*exitError); ok {
-		fmt.Fprintf(os.Stderr, "[cp] error: %s\n", ee.msg)
+		fmt.Fprintf(os.Stderr, "[cmdp] error: %s\n", ee.msg)
 		os.Exit(ee.code)
 	}
-	fmt.Fprintf(os.Stderr, "[cp] error: %s\n", err)
+	fmt.Fprintf(os.Stderr, "[cmdp] error: %s\n", err)
 	os.Exit(1)
 }
 

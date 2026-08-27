@@ -7,7 +7,7 @@ projects/
 
 # Runtime jobs map (state/jobs.tsv) / secrets
 state/
-bin/.cp-bin
+bin/.cmdp-bin
 .env
 captain.md
 

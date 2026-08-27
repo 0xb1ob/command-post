@@ -61,18 +61,24 @@ grep -F -q '$ROOT/bin/muxa' "$ROOT/scripts/muxa-hook.sh" \
   && fail "hook script does not assume command-post ships bin/muxa" \
   || ok "hook script does not assume command-post ships bin/muxa"
 
-has "$INSTALL" 'CP_VERSION_PIN="0.2.0"' \
-  "install.sh declares cp pin"
+has "$INSTALL" 'CMDP_VERSION_PIN="0.3.0"' \
+  "install.sh declares cmdp pin"
 lacks "$INSTALL" 'python3' \
-  "install.sh no longer requires python3 for bin/cp"
-has "$INSTALL" 'install_cp' \
-  "install.sh installs cp release binary"
-has "$INSTALL" 'cp_version_matches' \
-  "install.sh gates cp install on version match"
+  "install.sh no longer requires python3 for bin/cmdp"
+has "$INSTALL" 'install_cmdp' \
+  "install.sh installs cmdp release binary"
+has "$INSTALL" 'cmdp_version_matches' \
+  "install.sh gates cmdp install on version match"
+has "$INSTALL" 'dest="$BIN/cmdp"' \
+  "install.sh installs the CLI as cmdp, not cp"
+has "$INSTALL" 'asset="cmdp-${plat}"' \
+  "install.sh fetches the cmdp-<platform> release asset"
+has "$INSTALL" 'remove_legacy_cp_binary' \
+  "install.sh migrates operators off the old \$BIN/cp binary"
 has "$INSTALL" 'CP_INSTALL_URL' \
   "install.sh supports CP_INSTALL_URL override"
-lacks "$INSTALL" 'python3 is for bin/cp' \
-  "install.sh no longer mentions python3 for bin/cp"
+lacks "$INSTALL" 'python3 is for bin/cmdp' \
+  "install.sh no longer mentions python3 for bin/cmdp"
 has "$INSTALL" 'MUXA_VERSION_PIN="1.0.19"' \
   "install.sh declares muxa pin"
 has "$INSTALL" 'MUXA_BROKER_VERSION="$MUXA_VERSION_PIN"' \

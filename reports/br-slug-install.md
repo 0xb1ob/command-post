@@ -10,7 +10,7 @@ failure modes existed:
 2. **Unpinned float-to-latest** — once `--slug` existed on 0.2.19, install
    skipped upgrade while `curl … install.sh` floated to `releases/latest`. A
    machine could land on br 0.5.2 (schema 17) against a schema-16 home tracker;
-   every `bin/cp status` then died on `SCHEMA_MISMATCH` stdout.
+   every `bin/cmdp status` then died on `SCHEMA_MISMATCH` stdout.
 
 ## Truth
 
@@ -29,16 +29,16 @@ failure modes existed:
 not on `--slug`. After install, if the home `.beads` exists and `list --json`
 still fails, install prints the migrate-schema path and exits non-zero.
 
-`bin/cp` rejects `{error:…}` on br `--json` stdout before normalizing list or
+`bin/cmdp` rejects `{error:…}` on br `--json` stdout before normalizing list or
 comments output.
 
 Re-run `bin/install.sh` after pulling this change; migrate the live tracker
-before expecting `bin/cp status` to work.
+before expecting `bin/cmdp status` to work.
 
 ## br 0.5.x contract notes
 
 - `br show --json` returns a JSON **array of one** issue with comments inlined;
-  never use it for artifact bodies — use `bin/cp artifact get` / `br comments list`.
+  never use it for artifact bodies — use `bin/cmdp artifact get` / `br comments list`.
 - In `--json` mode, structured errors (`SCHEMA_MISMATCH`, etc.) print on **stdout**
-  as `{"error":{...}}` with non-zero exit — `bin/cp` rejects them before
+  as `{"error":{...}}` with non-zero exit — `bin/cmdp` rejects them before
   normalizing list/blocked/comments output.
